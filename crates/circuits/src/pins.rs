@@ -45,10 +45,6 @@ pub struct ZkEncryption {
 #[derive(Clone, Debug, Deserialize)]
 pub struct Eid {
     pub library: String,
-    /// The git revision whose Noir source the document steps are compiled from while no
-    /// published catalog carries them.
-    pub rev: String,
-    pub source: String,
     pub packs: String,
     pub catalog: String,
     pub catalog_sha256: String,
@@ -177,7 +173,7 @@ impl Pins {
             &mut r,
         )?;
         check(
-            &format!("identity layer {} (rev {})", self.eid.library, self.eid.rev),
+            &format!("identity layer {}", self.eid.library),
             lib(eid_circuits::circuits::LIBRARY) == self.eid.library,
             &mut r,
         )?;
@@ -243,8 +239,8 @@ impl Pins {
             &mut r,
         )?;
 
-        // eid's published catalog: every DSC and SOD circuit it packs is in the compiled-in
-        // registry (whose pins the unpacked bytecode is then checked against).
+        // eid's published catalog: every DSC, SOD and document step it packs is in the
+        // compiled-in registry (whose pins the unpacked bytecode is then checked against).
         let e = &self.eid;
         let cat = json(&fetch_pinned(&e.catalog, &e.catalog_sha256)?, "eid catalog")?;
         let known = |l: &str| {
@@ -265,7 +261,10 @@ impl Pins {
                 .flatten()
                 .filter_map(|l| l.as_str())
             {
-                if l.starts_with("dsc_") || l.starts_with("sod_") {
+                if ["dsc_", "sod_", "document_"]
+                    .iter()
+                    .any(|p| l.starts_with(p))
+                {
                     steps += 1;
                     same &= known(l);
                 }
@@ -273,12 +272,13 @@ impl Pins {
         }
         check(
             &format!(
-                "eid catalog {} (sha256 {}): {steps} DSC/SOD steps in {}",
+                "eid catalog {} (sha256 {}): {steps} DSC/SOD/document steps in {}",
                 e.catalog,
                 &e.catalog_sha256[..12],
                 e.library
             ),
-            same && steps > 0,
+            same && steps > 0
+                && format!("eid-circuits@{}", cat["version"].as_str().unwrap_or("")) == e.library,
             &mut r,
         )?;
 

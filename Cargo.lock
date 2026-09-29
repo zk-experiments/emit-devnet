@@ -3252,7 +3252,7 @@ dependencies = [
 [[package]]
 name = "eid-circuits"
 version = "0.8.0"
-source = "git+https://github.com/zk-experiments/eid-circuits?rev=367b651#367b651eac159b4bd1e2156997e11fa83f58e8e0"
+source = "git+https://github.com/zk-experiments/eid-circuits?tag=v0.8.0#7289e47a4056a5229b6eaedc03fbf48d8bf35af9"
 dependencies = [
  "hex",
  "noir-zk-backend",
@@ -3266,7 +3266,7 @@ dependencies = [
 [[package]]
 name = "eid-prover"
 version = "0.8.0"
-source = "git+https://github.com/zk-experiments/eid-circuits?rev=367b651#367b651eac159b4bd1e2156997e11fa83f58e8e0"
+source = "git+https://github.com/zk-experiments/eid-circuits?tag=v0.8.0#7289e47a4056a5229b6eaedc03fbf48d8bf35af9"
 dependencies = [
  "anyhow",
  "csca-registry",

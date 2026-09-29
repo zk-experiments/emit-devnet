@@ -183,7 +183,7 @@ impl Ctx {
     }
 
     /// The proving pool for these eid circuits: the pins checked (catalogs fetched), then eid's
-    /// packs downloaded and its document step compiled if not cached.
+    /// packs downloaded if not cached.
     pub fn pool(&self, labels: &[String; 3]) -> eyre::Result<&Pool> {
         if self.artifacts.get().is_none() {
             let pins = emit_devnet_circuits::pins::Pins::embedded();

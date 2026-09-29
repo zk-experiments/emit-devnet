@@ -15,9 +15,9 @@ publish = false
 noir-zk-core = "=0.3.0"
 noir-zk-backend = { version = "=0.3.0", features = ["packs", "http"] }
 noir-zk-codegen = "=0.3.0"
-# The identity layer: eid-circuits v0.8.0, draft PR #29 (branch feat/identity-layer, on noir-zk 0.3.0).
-eid-circuits = { git = "https://github.com/zk-experiments/eid-circuits", rev = "367b651", features = ["packs", "http"] }
-eid-prover = { git = "https://github.com/zk-experiments/eid-circuits", rev = "367b651" }
+# The identity layer: eid-circuits v0.8.0 (noir-zk 0.3.0; families eid/dsc, eid/sod, eid/document).
+eid-circuits = { git = "https://github.com/zk-experiments/eid-circuits", tag = "v0.8.0", features = ["packs", "http"] }
+eid-prover = { git = "https://github.com/zk-experiments/eid-circuits", tag = "v0.8.0" }
 csca-registry = { git = "https://github.com/zk-experiments/csca-registry", tag = "v0.3.1" }
 # The channel layer: zk-encryption v0.1.0 as PR #1 moves it onto noir-zk 0.3.0 (branch
 # build/noir-zk-0.3.0; the circuits and their pins are v0.1.0's, bytecode bundled).

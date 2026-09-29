@@ -21,15 +21,11 @@ catalog = "https://circuits.zk-experiments.dev/zk-encryption/0.1.0/catalog.json"
 catalog_sha256 = "bbf6cd45d558dca42c6e8999a60cc89e3aa0e956a99263e2a74ea4c4ebd79153"
 
 [eid]
-# The identity layer, v0.8.0 from draft PR #29 (branch feat/identity-layer, on noir-zk 0.3.0).
+# The identity layer, v0.8.0: its DSC, SOD and document steps from the release's packs.
 library = "eid-circuits@0.8.0"
-rev = "367b651eac159b4bd1e2156997e11fa83f58e8e0"
-source = "https://github.com/zk-experiments/eid-circuits"
 packs = "https://circuits.zk-eid.dev"
-# v0.8.0's packs are not published yet: its DSC and SOD steps are v0.7.0's, byte for byte (the
-# same pins), so they come from v0.7.0's packs; its document steps are compiled from `rev`.
-catalog = "https://circuits.zk-eid.dev/catalog@0.7.0.json"
-catalog_sha256 = "39294f2b6d93078cc725ddbc27d358414a1839aa75c93c0b56066b7f317e42f1"
+catalog = "https://circuits.zk-eid.dev/catalog@0.8.0.json"
+catalog_sha256 = "f91190637a0845061649f7935872e2070468c7bd7b7d9ebe99510178b917e092"
 
 [csca]
 # The published CSCA registry release (the devnet also accepts the synthetic fixtures' root).

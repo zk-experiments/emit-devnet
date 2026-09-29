@@ -27,8 +27,8 @@ Design: `emit-v2-transfer-mechanism.md` and `emit-private-transfer-design.md` (t
  ├ identity layer: eid-circuits 0.8.0 (eid/dsc, eid/sod, eid/document) wrapped
  ├ channel layer: zk-encryption 0.1.0 (channel/session, envelope, note_envelope) wrapped
  ├ pipelines identity_transfer (7 apps, 32 slots), transfer_only (3 apps) → fold, verify, Outputs, DEPLOYMENT_ROOT
- └ setup: eid DSC/SOD bytecode from the packs on circuits.zk-eid.dev (catalog SHA-256 pinned, pack SHA-256
-   from the catalog, every file against eid's registry pins); document steps compiled from eid's source
+ └ setup: eid DSC/SOD/document bytecode from the packs on circuits.zk-eid.dev (catalog SHA-256 pinned,
+   pack SHA-256 from the catalog, every file against eid's registry pins)
 ```
 
 ```
@@ -52,17 +52,17 @@ pins.toml
 |---|---|---|---|
 | noir-zk (core, backend, codegen, kernels) | `=0.3.0` | crates.io | kernels family root `0x0eb7f815…937f` and version |
 | emit layer (transfer app) | `emit-devnet@0.1.0`, family root `0x12bbf5aa…e702` | this repository (`crates/circuits/noir`, frozen with `noir-zk freeze`, bytecode bundled) | library and family root; bytecode against its pin when loaded |
-| channel layer | `zk-encryption@0.1.0`, git rev `8696562` (PR #1, on noir-zk 0.3.0) | bytecode bundled in `zk-encryption-circuits`; catalog `https://circuits.zk-experiments.dev/zk-encryption/0.1.0/catalog.json` | catalog SHA-256 `bbf6cd45…9153`; its families' roots equal the compiled-in ones |
-| identity layer | `eid-circuits@0.8.0`, git rev `367b651` (PR #29, on noir-zk 0.3.0) | DSC and SOD steps: packs on `https://circuits.zk-eid.dev`, catalog `catalog@0.7.0.json` (0.8.0's DSC and SOD pins are 0.7.0's, byte for byte; 0.8.0's packs aren't published yet); document steps: compiled from eid's Noir source at the pinned rev with nargo 1.0.0-rc.3 | catalog SHA-256 `39294f2b…53f1` and its 248 DSC/SOD labels in eid's registry; each pack's SHA-256 against the catalog; every unpacked `.b64` / `.vk` and every compiled document step against eid's registry pins |
+| channel layer | `zk-encryption@0.1.0`, git rev `8696562` (main since PR #1, on noir-zk 0.3.0 from crates.io) | bytecode bundled in `zk-encryption-circuits`; catalog `https://circuits.zk-experiments.dev/zk-encryption/0.1.0/catalog.json` | catalog SHA-256 `bbf6cd45…9153`; its families' roots equal the compiled-in ones |
+| identity layer | `eid-circuits@0.8.0`, git tag `v0.8.0` (`eid-circuits`, `eid-prover`) | DSC, SOD and document steps: packs on `https://circuits.zk-eid.dev`, catalog `catalog@0.8.0.json` | catalog SHA-256 `f9119063…e092`, its version and its DSC/SOD/document labels in eid's registry; each pack's SHA-256 against the catalog; every unpacked `.b64` / `.vk` against eid's registry pins |
 | CSCA registry | tag `registry-20260928-1039`, root `0x27bef40a…02a2` | `https://registry.zk-eid.dev/<tag>/registry.json` | file SHA-256 `17a21c0f…4444` and `commitment.root` |
 | deployment | root `0x2d9395b0…0009`; `identity_transfer` `0x1c9a8489…9624` (7); `transfer_only` `0x2af79540…5da5` (3) | computed by the codegen | equal to the generated constants |
-| toolchain | nargo 1.0.0-rc.3, bb 7.0.0-nightly.20260927 (via `barretenberg-rs`), reth v2.6.0, solc 0.8.30 | `~/.toolchains`, crates.io, git tag | nargo path `$NARGO` or `~/.toolchains/noir-1.0.0-rc.3/bin/nargo` |
+| toolchain | nargo 1.0.0-rc.3, bb 7.0.0-nightly.20260927 (via `barretenberg-rs`), reth v2.6.0, solc 0.8.30 | `~/.toolchains`, crates.io, git tag | nargo only to refreeze the emit layer (`~/.toolchains/noir-1.0.0-rc.3/bin/nargo`) |
 
-Caches: `~/.cache/emit-devnet` (`$EMIT_DEVNET_CACHE`): the pinned files, eid's unpacked packs (the demo needs rsa4096, rsa2048, bp384, bp256: about 235 MB) and eid's source checkout with the compiled document steps. The prover reads bb's CRS from `~/.bb-crs` (`$BB_CRS_PATH`), checked against noir-zk's pinned hashes.
+Caches: `~/.cache/emit-devnet` (`$EMIT_DEVNET_CACHE`): the pinned files, eid's unpacked packs (the demo needs common, rsa4096, rsa2048, bp384, bp256: about 300 MB). The prover reads bb's CRS from `~/.bb-crs` (`$BB_CRS_PATH`), checked against noir-zk's pinned hashes.
 
 ## Running it
 
-Prerequisites: Rust 1.94+, Foundry (forge, cast), nargo 1.0.0-rc.3 at `~/.toolchains/noir-1.0.0-rc.3/bin/nargo` (or `$NARGO`), bb's CRS in `~/.bb-crs`, network access the first time.
+Prerequisites: Rust 1.94+, Foundry (forge, cast), bb's CRS in `~/.bb-crs`, network access the first time.
 
 ```sh
 git submodule update --init          # forge-std
@@ -148,14 +148,14 @@ Each transaction is proven in-process: eid-prover v0.8.0 selects the passport's 
 | Bob merges 5 + 10 → 14.99 | DE | 4.65 s | 2,787,682 |
 | Bob withdraws 30 | DE | 4.65 s | 2,797,175 |
 
-Every proof is 40,192 bytes (calldata 42,148 bytes) and verifies in 17-20 ms. A transfer's 2.78M gas: 564k calldata (EIP-7623's floor, 1.38M, isn't binding), 1.20M `ZK_VERIFY`, 34k for 66 `POSEIDON2` calls (64 tree nodes, ctx, the ciphertext commitment), about 545k decoding and packing the ML-KEM ciphertext in Solidity, and the rest storage (nullifiers, tree, root ring), the Envelope event and the payments. The first deposit pays about 550k more for the tree's first writes. The whole demo takes about 40 s with the packs cached (first run: about 235 MB of packs and two document steps compiled).
+Every proof is 40,192 bytes (calldata 42,148 bytes) and verifies in 17-20 ms. A transfer's 2.78M gas: 564k calldata (EIP-7623's floor, 1.38M, isn't binding), 1.20M `ZK_VERIFY`, 34k for 66 `POSEIDON2` calls (64 tree nodes, ctx, the ciphertext commitment), about 545k decoding and packing the ML-KEM ciphertext in Solidity, and the rest storage (nullifiers, tree, root ring), the Envelope event and the payments. The first deposit pays about 550k more for the tree's first writes. The whole demo takes about 40 s with the packs cached (first run: about 300 MB of packs).
 
 ## What is devnet-only
 
 - **Sending from the user's EOA.** The design sends `transact` from a one-time address with a zero gas price, the fee paid only from the shielded value; that needs a zero-fee path (a sequencer or mempool rule admitting such transactions when the proof checks out) that this dev chain doesn't have. Here each user's funded EOA sends and pays gas, which links their transactions to their account; the protocol fee still goes from the shielded value to `block.coinbase`. (reth's dev mode rotates the coinbase per block, so the fees land on throwaway addresses.)
 - **Registry roots set by the owner.** The pool accepts the csca-registry roots its owner adds (the deploy adds the fixtures' root and the pinned published one); a real chain would have an eid module following the registry.
 - **Synthetic passports.** The six fixtures (US, DE, FR, IT, NL, ES) are mock documents signed by mock CSCAs; the pool accepts their registry's root. Two users may even share a passport.
-- **eid v0.8.0 is a draft.** Its DSC and SOD bytecode comes from v0.7.0's packs (same pins) and its document steps are compiled from source, until v0.8.0's packs are published; zk-encryption is consumed from its PR branch on noir-zk 0.3.0.
+- **zk-encryption by revision.** The channel layer is consumed at git rev `8696562` (v0.1.0's circuits on noir-zk 0.3.0), not yet at a release tag.
 - **Dev keys and chain.** Well-known keys, chain id 3607, instant blocks, one node; the datadir is thrown away by `scripts/devnet.sh`.
 
 ## Gaps
