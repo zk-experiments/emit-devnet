@@ -5,7 +5,9 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 DEVNET=${DEVNET:-$ROOT/.devnet}
 BIN=${BIN:-$ROOT/target/debug}
-RPC=${ZKPOOL_RPC:-http://127.0.0.1:8545}
+RPC_PORT=${RPC_PORT:-8545}
+WS_PORT=${WS_PORT:-8546}
+RPC=http://127.0.0.1:$RPC_PORT
 # The deployer: the standard test mnemonic's account 0 (genesis.json funds it).
 DEPLOYER_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
@@ -16,8 +18,9 @@ fi
 rm -rf "$DEVNET"
 mkdir -p "$DEVNET/wallets"
 "$BIN/emit-node" node --dev --chain "$ROOT/genesis.json" --datadir "$DEVNET/chain" \
-  --http --http.api eth,net,web3,debug,txpool --ws --ws.api eth,net,web3 \
-  --disable-discovery --log.file.directory "$DEVNET/logs" >"$DEVNET/node.log" 2>&1 &
+  --http --http.port "$RPC_PORT" --http.api eth,net,web3,debug,txpool --ws --ws.port "$WS_PORT" \
+  --ws.api eth,net,web3 --authrpc.port $((RPC_PORT + 6)) --port $((RPC_PORT + 21758)) \
+  --disable-discovery --ipcdisable --log.file.directory "$DEVNET/logs" >"$DEVNET/node.log" 2>&1 &
 NODE_PID=$!
 for _ in $(seq 1 120); do
   curl -sf -X POST -H 'content-type: application/json' \
@@ -27,13 +30,13 @@ for _ in $(seq 1 120); do
 done
 grep -E '^(pins|precompiles):' "$DEVNET/node.log" || true
 
-info=$("$BIN/zkpool" info)
+info=$("$BIN/zkpool" --rpc "$RPC" info)
 export DEPLOYMENT_ROOT=$(awk '/^deployment_root/ {print $2}' <<<"$info")
 export PIPELINE_ROOT=$(awk '/^identity_transfer/ {print $2}' <<<"$info")
 export REGISTRY_ROOTS="$(awk '/^fixtures_registry/ {print $2}' <<<"$info"),$(awk '/^csca_registry/ {print $2}' <<<"$info")"
 (cd "$ROOT/contracts" && forge script script/Deploy.s.sol --rpc-url "$RPC" --broadcast \
   --private-key "$DEPLOYER_KEY" >"$DEVNET/deploy.log" 2>&1) || { cat "$DEVNET/deploy.log"; exit 1; }
 export ZKPOOL_POOL=$(awk '/^  EmitV2Pool 0x/ {print $2}' "$DEVNET/deploy.log")
-export ZKPOOL_HOME="$DEVNET/wallets"
+export ZKPOOL_HOME="$DEVNET/wallets" ZKPOOL_RPC="$RPC" ZKPOOL_WS="ws://127.0.0.1:$WS_PORT"
 export NODE_PID
 echo "node pid $NODE_PID, rpc $RPC, EmitV2Pool $ZKPOOL_POOL"
