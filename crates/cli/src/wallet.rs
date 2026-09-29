@@ -1,0 +1,423 @@
+//! A user's wallet: the passport it proves with, the shielded key, the receiver (keys, bundle,
+//! channels), the contacts (one `Sender` per accepted bundle), the notes, and the note tree
+//! rebuilt from the pool's events. Persisted as JSON (`<home>/<name>.json`), the channel states
+//! through zk-encryption's serde feature; written before every broadcast (the advanced chain key
+//! must never be reused).
+
+use crate::chain::{self, TxEvents};
+use crate::document::{self, Document};
+use crate::emit::{InNote, OutNote, Transfer};
+use crate::tree::Tree;
+use alloy::primitives::Address;
+use alloy::providers::Provider;
+use emit_devnet_circuits::circuits::DEPLOYMENT;
+use emit_devnet_circuits::circuits::families::{
+    KernelStepDocument, KernelStepDsc, KernelStepEnvelope, KernelStepNoteEnvelope,
+    KernelStepSession, KernelStepSod, KernelStepTransfer,
+};
+use emit_devnet_circuits::circuits::pipelines::identity_transfer;
+use noir_zk_core::StepFamily;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+use zk_encryption_circuits::wallet::Fr;
+use zk_encryption_circuits::wallet::emit::{Delivery, Emit};
+use zk_encryption_circuits::wallet::poseidon::{FieldHex, Rng};
+use zk_encryption_circuits::wallet::receiver::{Receiver, Scan};
+use zk_encryption_circuits::wallet::sender::{ChannelWitness, Sender};
+
+/// Chain keys a receiver holds ahead per channel.
+pub const WINDOW: u64 = 8;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Note {
+    /// Wei, as a decimal string.
+    pub value: String,
+    pub rho: String,
+    pub r: String,
+    pub commitment: String,
+    /// The leaf index, once the pool appended it.
+    pub index: Option<u64>,
+    /// Who sent it (their MRZ), for a received note.
+    pub from: Option<String>,
+}
+
+impl Note {
+    pub fn value(&self) -> u128 {
+        self.value.parse().unwrap_or(0)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Contact {
+    pub bundle: String,
+    pub sender: Sender,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Wallet {
+    pub name: String,
+    pub document: String,
+    /// The funded EOA that sends this wallet's transactions (devnet: see README).
+    pub key: String,
+    /// The shielded spending key.
+    pub sk: String,
+    pub receiver: Receiver,
+    pub bundle: String,
+    pub contacts: BTreeMap<String, Contact>,
+    pub notes: Vec<Note>,
+    /// This wallet's outputs of transfers it sent, until the pool appends them.
+    pub pending: Vec<Note>,
+    pub leaves: Vec<String>,
+    /// The last block synced.
+    pub synced: u64,
+}
+
+pub fn path(home: &Path, name: &str) -> PathBuf {
+    home.join(format!("{name}.json"))
+}
+
+/// What a transaction does to the pool, before the notes are chosen.
+pub struct Plan {
+    pub ins: Vec<Note>,
+    /// (recipient pk, value, kept by this wallet)
+    pub outs: [(Fr, u128, bool); 2],
+    pub v_in: u128,
+    pub v_out: u128,
+    pub fee: u128,
+    pub payout: Address,
+    /// A contact's channel (handshake or ratchet), or none (a throwaway channel).
+    pub to: Option<String>,
+}
+
+/// Timings and gas of one transact.
+pub struct Receipt {
+    pub prove_s: f64,
+    pub verify_ms: f64,
+    pub proof_bytes: usize,
+    pub gas_used: u64,
+    pub calldata: usize,
+    pub block: u64,
+    pub tx: String,
+}
+
+impl Wallet {
+    pub fn load(home: &Path, name: &str) -> eyre::Result<Self> {
+        let p = path(home, name);
+        let s = std::fs::read_to_string(&p)
+            .map_err(|e| eyre::eyre!("{}: {e} (zkpool identity new --name {name})", p.display()))?;
+        Ok(serde_json::from_str(&s)?)
+    }
+
+    /// Writes the state atomically (a temp file renamed over the old one).
+    pub fn save(&self, home: &Path) -> eyre::Result<()> {
+        std::fs::create_dir_all(home)?;
+        let p = path(home, &self.name);
+        let tmp = p.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(self)?)?;
+        std::fs::rename(tmp, p)?;
+        Ok(())
+    }
+
+    pub fn sk(&self) -> Fr {
+        Fr::from_hex(&self.sk)
+    }
+
+    pub fn pk(&self) -> Fr {
+        Emit::pk(self.sk())
+    }
+
+    pub fn tree(&self) -> Tree {
+        Tree::from_leaves(self.leaves.iter().map(|l| Fr::from_hex(l)).collect())
+    }
+
+    pub fn balance(&self) -> u128 {
+        self.notes.iter().map(Note::value).sum()
+    }
+
+    fn nullifier(&self, n: &Note) -> Fr {
+        Emit::nullifier(Emit::nk(self.sk()), Fr::from_hex(&n.rho))
+    }
+
+    /// Applies one pool transaction: appends its commitments to the tree, drops spent notes,
+    /// keeps this wallet's pending outputs, and scans the Envelope for a note addressed here.
+    /// Returns what was received (value, sender's MRZ, handshake or ratchet index).
+    pub fn apply(&mut self, cid: Fr, t: &TxEvents) -> eyre::Result<Option<(u128, String, String)>> {
+        for (c, i) in &t.commitments {
+            eyre::ensure!(
+                *i == self.leaves.len() as u64,
+                "leaf {i} out of order (the wallet has {}): resync from scratch",
+                self.leaves.len()
+            );
+            self.leaves.push(c.hex());
+            if let Some(k) = self.pending.iter().position(|n| n.commitment == c.hex()) {
+                let mut n = self.pending.remove(k);
+                n.index = Some(*i);
+                self.notes.push(n);
+            }
+        }
+        let spent: Vec<String> = t.nullifiers.iter().map(|n| n.hex()).collect();
+        let sk_nullifiers: Vec<String> = self.notes.iter().map(|n| self.nullifier(n).hex()).collect();
+        let mut i = 0;
+        self.notes.retain(|_| {
+            i += 1;
+            !spent.contains(&sk_nullifiers[i - 1])
+        });
+        let (Some(envelope), [n0, n1], [c0, c1]) =
+            (&t.envelope, t.nullifiers.as_slice(), t.commitments.as_slice())
+        else {
+            return Ok(None);
+        };
+        let d = Delivery {
+            cid,
+            nullifiers: [*n0, *n1],
+            commitments: [*c0, *c1],
+            envelope: envelope.clone(),
+        };
+        let (note, dg1, how) = match self.receiver.scan(&d) {
+            Scan::Handshake { note, dg1 } => (note, dg1, "handshake".to_string()),
+            Scan::Ratchet { t, note, dg1 } => (note, dg1, format!("ratchet index {t}")),
+            Scan::NotMine => return Ok(None),
+            Scan::Invalid(e) => {
+                eprintln!("{}: tx {} addressed here but refused: {e:?}", self.name, t.tx);
+                return Ok(None);
+            }
+        };
+        eyre::ensure!(note.commitment(cid, self.pk()) == c0.0, "note does not open C0");
+        let mrz = Document::mrz(&dg1);
+        if !self.notes.iter().any(|n| n.commitment == c0.0.hex()) && note.value > 0 {
+            self.notes.push(Note {
+                value: note.value.to_string(),
+                rho: note.rho.hex(),
+                r: note.r.hex(),
+                commitment: c0.0.hex(),
+                index: Some(c0.1),
+                from: Some(mrz.clone()),
+            });
+        }
+        Ok(Some((note.value, mrz, how)))
+    }
+
+    /// Catches up with the pool's events up to the latest block; prints received notes.
+    pub async fn sync(&mut self, p: &impl Provider, pool: Address, home: &Path) -> eyre::Result<usize> {
+        let cid = Fr::from(p.get_chain_id().await?);
+        let latest = p.get_block_number().await?;
+        if latest <= self.synced {
+            return Ok(0);
+        }
+        let mut received = 0;
+        for t in chain::events(p, pool, self.synced + 1, latest).await? {
+            if let Some((v, mrz, how)) = self.apply(cid, &t)? {
+                received += 1;
+                println!(
+                    "{}: received {} ETH ({how}, block {}) from {mrz}",
+                    self.name,
+                    crate::eth(v),
+                    t.block
+                );
+            }
+        }
+        self.synced = latest;
+        self.save(home)?;
+        Ok(received)
+    }
+
+    /// Picks `k` notes (smallest first) worth at least `need`.
+    pub fn pick(&self, need: u128, max: usize) -> eyre::Result<Vec<Note>> {
+        let mut notes: Vec<Note> = self.notes.iter().filter(|n| n.index.is_some()).cloned().collect();
+        notes.sort_by_key(Note::value);
+        if let Some(n) = notes.iter().find(|n| n.value() >= need) {
+            return Ok(vec![n.clone()]);
+        }
+        if max >= 2 {
+            for i in 0..notes.len() {
+                for j in i + 1..notes.len() {
+                    if notes[i].value() + notes[j].value() >= need {
+                        return Ok(vec![notes[i].clone(), notes[j].clone()]);
+                    }
+                }
+            }
+        }
+        eyre::bail!(
+            "no {} note(s) worth {} ETH (balance {} ETH)",
+            if max >= 2 { "one or two" } else { "single" },
+            crate::eth(need),
+            crate::eth(self.balance())
+        )
+    }
+
+    /// Builds the transfer, proves it with this wallet's passport, and sends it from the EOA.
+    pub async fn execute(
+        &mut self,
+        plan: Plan,
+        ctx: &crate::Ctx,
+        p: &impl Provider,
+    ) -> eyre::Result<Receipt> {
+        let cid = Fr::from(p.get_chain_id().await?);
+        let tree = self.tree();
+        let root = tree.root();
+        let sk = self.sk();
+        let ins: Vec<InNote> = plan
+            .ins
+            .iter()
+            .map(|n| InNote {
+                sk,
+                value: n.value(),
+                rho: Fr::from_hex(&n.rho),
+                r: Fr::from_hex(&n.r),
+                path: tree.path(n.index.expect("appended")),
+            })
+            .collect();
+        let mut ins = ins.into_iter();
+        let ins = [ins.next().unwrap_or_else(InNote::dummy), ins.next().unwrap_or_else(InNote::dummy)];
+        let outs = plan.outs.map(|(pk, v, _)| OutNote::to(pk, v));
+        // The channel: advancing it changes the state, which is written before broadcasting.
+        let channel = match &plan.to {
+            None => ChannelWitness::throwaway()?,
+            Some(name) => {
+                let c = self
+                    .contacts
+                    .get_mut(name)
+                    .ok_or_else(|| eyre::eyre!("no contact {name} (zkpool contact add)"))?;
+                match c.sender.index() {
+                    None => c.sender.handshake()?,
+                    Some(_) => c.sender.advance()?,
+                }
+            }
+        };
+        let payout = address_field(plan.payout);
+        let t = Transfer::build(cid, root, ins, outs, plan.v_in, plan.v_out, plan.fee, payout, channel)
+            .map_err(|e| eyre::eyre!("transfer: {e:?}"))?;
+        for (j, (_, v, keep)) in plan.outs.iter().enumerate() {
+            if *keep && *v > 0 {
+                let o = t.opening(j);
+                self.pending.push(Note {
+                    value: v.to_string(),
+                    rho: o.rho.hex(),
+                    r: o.r.hex(),
+                    commitment: t.commitments[j].hex(),
+                    index: None,
+                    from: None,
+                });
+            }
+        }
+        self.save(&ctx.home)?;
+
+        // Prove: the passport's eid steps, the session, DG1 sealed, the transfer, the note sealed.
+        let doc = document::by_name(&self.document)?;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+        let reg = ctx.registry()?;
+        let w = doc.witnesses(reg, now, t.ctx, t.channel.s)?;
+        let pool = ctx.pool(&w.labels)?;
+        let artifacts = pool.merged();
+        let start = Instant::now();
+        let e = |what: &str| {
+            let what = what.to_string();
+            move |err: noir_zk_core::Error| eyre::eyre!("{what}: {err}")
+        };
+        let (proof, _) = identity_transfer::fold(&artifacts)
+            .map_err(e("pipeline"))?
+            .app(KernelStepDsc::select(&w.labels[0], w.dsc).map_err(e("dsc"))?)
+            .map_err(e("dsc"))?
+            .app(KernelStepSod::select(&w.labels[1], w.sod).map_err(e("sod"))?)
+            .map_err(e("sod"))?
+            .app(KernelStepDocument::select(&w.labels[2], w.document).map_err(e("document"))?)
+            .map_err(e("document"))?
+            .app(KernelStepSession::select("channel_session", t.session_inputs()).map_err(e("session"))?)
+            .map_err(e("session"))?
+            .app(KernelStepEnvelope::select("channel_envelope", w.envelope).map_err(e("envelope"))?)
+            .map_err(e("envelope"))?
+            .app(KernelStepTransfer::select("transfer", t.inputs()).map_err(e("transfer"))?)
+            .map_err(e("transfer"))?
+            .app(KernelStepNoteEnvelope::select("channel_envelope", t.note_inputs()).map_err(e("note"))?)
+            .map_err(e("note"))?
+            .hiding(&DEPLOYMENT)
+            .map_err(e("prove"))?;
+        let prove_s = start.elapsed().as_secs_f64();
+        let proof = proof.to_bytes();
+        let proof_bytes = proof.len();
+        // What ZK_VERIFY will do, locally first (and timed: the precompile's gas is priced on it).
+        let start = Instant::now();
+        emit_devnet_circuits::verify(&identity_transfer::ROOT, &proof).map_err(e("local verification"))?;
+        let verify_ms = start.elapsed().as_secs_f64() * 1e3;
+
+        let signer: alloy::signers::local::PrivateKeySigner = self.key.parse()?;
+        let sender = alloy::providers::ProviderBuilder::new()
+            .wallet(signer)
+            .connect(&ctx.rpc)
+            .await?;
+        let sent = chain::transact(
+            &sender,
+            ctx.pool_address()?,
+            chain::Transact {
+                root,
+                nullifiers: t.nullifiers,
+                commitments: t.commitments,
+                v_in: t.v_in,
+                v_out: t.v_out,
+                fee: t.fee,
+                payout: plan.payout,
+                pq_ciphertext: t.channel.kem.handshake.ct.to_bytes(),
+                proof,
+            },
+        )
+        .await;
+        let sent = match sent {
+            Ok(s) => s,
+            Err(err) => {
+                // Nothing was appended: forget the pending outputs (the channel stays advanced).
+                self.pending.retain(|n| !t.commitments.iter().any(|c| c.hex() == n.commitment));
+                self.save(&ctx.home)?;
+                return Err(err);
+            }
+        };
+        self.sync(p, ctx.pool_address()?, &ctx.home).await?;
+        Ok(Receipt {
+            prove_s,
+            verify_ms,
+            proof_bytes,
+            gas_used: sent.gas_used,
+            calldata: sent.calldata,
+            block: sent.block,
+            tx: sent.tx.to_string(),
+        })
+    }
+
+    /// A new identity: the passport, a fresh shielded key and receiver keys, the bundle.
+    pub fn create(name: &str, document: &str, key: String, chain_id: u64) -> eyre::Result<Self> {
+        document::by_name(document)?;
+        let sk = Rng::field();
+        let receiver = Receiver::generate(Emit::pk(sk), WINDOW);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+        let bundle = zk_encryption_circuits::wallet::bundle::Bundle {
+            chain_id,
+            pk_b: receiver.pk(),
+            v: receiver.keys().public.grumpkin,
+            pq: receiver.keys().public.pq_commitment,
+            ek: zk_encryption_circuits::wallet::bundle::Ek::Inline(receiver.keys().ek().to_vec()),
+            not_before: now - 60,
+            not_after: now + 30 * 86_400,
+            sig: None,
+        };
+        Ok(Self {
+            name: name.into(),
+            document: document.into(),
+            key,
+            sk: sk.hex(),
+            bundle: bundle.to_base64url(),
+            receiver,
+            contacts: BTreeMap::new(),
+            notes: vec![],
+            pending: vec![],
+            leaves: vec![],
+            synced: 0,
+        })
+    }
+}
+
+/// An address as the field the transfer app takes (`payout_recipient`): its 20 bytes big-endian.
+pub fn address_field(a: Address) -> Fr {
+    use ark_ff::PrimeField;
+    Fr::from_be_bytes_mod_order(a.as_slice())
+}

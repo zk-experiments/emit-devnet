@@ -1,0 +1,27 @@
+[package]
+name = "zkpool"
+description = "Console wallet for the Emit V2 devnet: identities bound to synthetic passports, contacts by receiver bundle, deposits, private transfers on the post-quantum channel, withdrawals, a listener"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+emit-devnet-circuits.workspace = true
+noir-zk-core.workspace = true
+noir-zk-backend.workspace = true
+zk-encryption-circuits.workspace = true
+eid-prover.workspace = true
+csca-registry.workspace = true
+ark-ff.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+alloy = { version = "2.5.0", features = ["provider-ws", "provider-http", "signer-local", "sol-types", "contract", "rpc-types", "network", "reqwest"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
+clap = { version = "4", features = ["derive", "env"] }
+eyre = "0.6"
+futures-util = "0.3"
+base64 = "0.22"

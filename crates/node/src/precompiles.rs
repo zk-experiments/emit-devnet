@@ -26,9 +26,10 @@ use zk_encryption_circuits::wallet::poseidon::Poseidon;
 pub const ZK_VERIFY: alloy_primitives::Address = address!("0x0000000000000000000000000000000000000100");
 pub const POSEIDON2: alloy_primitives::Address = address!("0x0000000000000000000000000000000000000101");
 
-/// Flat gas of a verification: measured at ~33 ms per Chonk verification on an Apple M5 Max
-/// (bb 7.0.0-nightly.20260927), priced at 60 Mgas/s, like the 3,000-gas ecrecover's ~50 µs.
-pub const ZK_VERIFY_GAS: u64 = 2_000_000;
+/// Flat gas of a verification: a Chonk verification takes 17-20 ms on an Apple M5 Max
+/// (bb 7.0.0-nightly.20260927, measured by the wallet before each send), priced at 60 Mgas/s,
+/// ecrecover's rate (3,000 gas for ~50 µs).
+pub const ZK_VERIFY_GAS: u64 = 1_200_000;
 /// Per 32-byte word of input (reading and decoding the proof).
 pub const ZK_VERIFY_PER_WORD: u64 = 3;
 /// Poseidon2: a call and one permutation per three inputs (~6 µs each natively).
