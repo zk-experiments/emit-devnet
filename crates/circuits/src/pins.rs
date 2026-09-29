@@ -152,7 +152,10 @@ impl Pins {
         // noir-zk: the kernels' family is the last leaf of every pipeline root.
         let kernels = crate::hex32(&noir_zk_backend::kernels::FAMILY.root);
         check(
-            &format!("noir-zk {} kernels family root {kernels}", self.noir_zk.version),
+            &format!(
+                "noir-zk {} kernels family root {kernels}",
+                self.noir_zk.version
+            ),
             kernels == self.noir_zk.kernels_family_root
                 && noir_zk_backend::kernels::FAMILY.version == self.noir_zk.version,
             &mut r,
