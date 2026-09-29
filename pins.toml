@@ -4,10 +4,10 @@
 # and contents. Changing a layer's version means changing it here and in Cargo.toml together.
 
 [noir-zk]
-# The feat/pipelines branch (PR #6) until 0.3.0 is on crates.io; every layer is bound with it.
-rev = "dd2d33f"
+# From crates.io; every layer is bound with it.
+version = "0.3.0"
 # noir-zk-kernels/kernels/step: the last leaf of every pipeline root.
-kernels_family_root = "0x1393186fafcf48fd897b979e39f881451320142155212f60c40549dde5bb9074"
+kernels_family_root = "0x0eb7f8157a5b52a81ce181f7dca9e0190e738dc5cb41dde4d3fdde618b84937f"
 
 [emit]
 # This repository's layer: the transfer app (crates/circuits/noir), frozen by `noir-zk freeze`.
@@ -15,14 +15,15 @@ library = "emit-devnet@0.1.0"
 transfer_family_root = "0x12bbf5aa1ae196354bf404474407fad48a14722b77eede8e85635b5b5f7de702"
 
 [zk-encryption]
+# v0.1.0's circuits (families and pins unchanged), consumed from PR #1's branch on noir-zk 0.3.0.
 library = "zk-encryption@0.1.0"
 catalog = "https://circuits.zk-experiments.dev/zk-encryption/0.1.0/catalog.json"
 catalog_sha256 = "bbf6cd45d558dca42c6e8999a60cc89e3aa0e956a99263e2a74ea4c4ebd79153"
 
 [eid]
-# The identity layer, v0.8.0 from draft PR #29 (branch feat/identity-layer).
+# The identity layer, v0.8.0 from draft PR #29 (branch feat/identity-layer, on noir-zk 0.3.0).
 library = "eid-circuits@0.8.0"
-rev = "a0a9cce2b6dc4467792efb060542d714054329d7"
+rev = "367b651eac159b4bd1e2156997e11fa83f58e8e0"
 source = "https://github.com/zk-experiments/eid-circuits"
 packs = "https://circuits.zk-eid.dev"
 # v0.8.0's packs are not published yet: its DSC and SOD steps are v0.7.0's, byte for byte (the
@@ -38,6 +39,6 @@ registry = "https://registry.zk-eid.dev/registry-20260928-1039/registry.json"
 registry_sha256 = "17a21c0f7997de83a7ebc9296b6a041dc84286e4805374037faac6dd8bcf4444"
 
 [deployment]
-root = "0x04f372b3893332686c9f87166edaf0d046439bc97db3cd16ec1b80f5d6b1b195"
-identity_transfer = { root = "0x2ecfcef7c650b95ef0d3fc4a8d15827133c3f29b3e275e9d2fccc49c7bf605d5", length = 7 }
-transfer_only = { root = "0x19689f0fcfb70b1fa52982c94aab11c16f4ae8f94d69eb00f8467880eed86d01", length = 3 }
+root = "0x2d9395b0dde8be8c9383886c83daa2b3bbd75e0f7f3a1109bc94a3a4f6ce0009"
+identity_transfer = { root = "0x1c9a848996f506acd17589fde01a6ad94683711e7b227dfffaef8365050d9624", length = 7 }
+transfer_only = { root = "0x2af795401a38c1ba40721ab62f363538e2c1f55262e9dbdecea8bfe705725da5", length = 3 }

@@ -6,7 +6,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
-cargo build -p emit-devnet-node -p zkpool 2>&1 | tail -1
+cargo build -q -p emit-devnet-node -p zkpool 2>/dev/null || cargo build -p emit-devnet-node -p zkpool
 (cd contracts && forge build >/dev/null 2>&1)
 source scripts/devnet.sh
 trap 'kill $NODE_PID 2>/dev/null || true' EXIT

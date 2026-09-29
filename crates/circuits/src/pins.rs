@@ -25,7 +25,7 @@ pub struct Pins {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct NoirZk {
-    pub rev: String,
+    pub version: String,
     pub kernels_family_root: String,
 }
 
@@ -152,8 +152,9 @@ impl Pins {
         // noir-zk: the kernels' family is the last leaf of every pipeline root.
         let kernels = crate::hex32(&noir_zk_backend::kernels::FAMILY.root);
         check(
-            &format!("noir-zk {} kernels family root {kernels}", self.noir_zk.rev),
-            kernels == self.noir_zk.kernels_family_root,
+            &format!("noir-zk {} kernels family root {kernels}", self.noir_zk.version),
+            kernels == self.noir_zk.kernels_family_root
+                && noir_zk_backend::kernels::FAMILY.version == self.noir_zk.version,
             &mut r,
         )?;
 
@@ -209,7 +210,9 @@ impl Pins {
             return Ok(r);
         }
 
-        // zk-encryption's published catalog: its families and kernels are the compiled-in ones.
+        // zk-encryption's published catalog: its families (library, version, members) are the
+        // compiled-in ones. Its `kernels` entry names the noir-zk it was released against; the
+        // kernels folded here are noir-zk's own, pinned above.
         let z = &self.zk_encryption;
         let cat = json(
             &fetch_pinned(&z.catalog, &z.catalog_sha256)?,
@@ -219,9 +222,7 @@ impl Pins {
             "{}@{}",
             cat["library"].as_str().unwrap_or(""),
             cat["version"].as_str().unwrap_or("")
-        ) == z.library
-            && cat["kernels"]["family_root"].as_str()
-                == Some(self.noir_zk.kernels_family_root.as_str());
+        ) == z.library;
         for f in cat["families"].as_array().into_iter().flatten() {
             let id = f["id"].as_str().unwrap_or("");
             let name = id.rsplit('/').next().unwrap_or("");
@@ -230,9 +231,10 @@ impl Pins {
         }
         check(
             &format!(
-                "channel catalog {} (sha256 {}): families and kernels",
+                "channel catalog {} (sha256 {}): families (released against noir-zk {})",
                 z.catalog,
-                &z.catalog_sha256[..12]
+                &z.catalog_sha256[..12],
+                cat["kernels"]["version"].as_str().unwrap_or("?")
             ),
             same,
             &mut r,
