@@ -105,13 +105,14 @@ pub fn fetch(url: &str) -> Result<Vec<u8>, String> {
 
 /// `url`'s bytes if they hash to `sha256`: from the cache when present, else fetched and cached.
 pub fn fetch_pinned(url: &str, sha256: &str) -> Result<Vec<u8>, String> {
-    let path = cache_dir()
-        .join("pinned")
-        .join(format!("{}-{sha256}", url.rsplit('/').next().unwrap_or("asset")));
-    if let Ok(b) = std::fs::read(&path) {
-        if hex::encode(Sha256::digest(&b)) == sha256 {
-            return Ok(b);
-        }
+    let path = cache_dir().join("pinned").join(format!(
+        "{}-{sha256}",
+        url.rsplit('/').next().unwrap_or("asset")
+    ));
+    if let Ok(b) = std::fs::read(&path)
+        && hex::encode(Sha256::digest(&b)) == sha256
+    {
+        return Ok(b);
     }
     let b = fetch(url)?;
     let got = hex::encode(Sha256::digest(&b));
@@ -210,10 +211,17 @@ impl Pins {
 
         // zk-encryption's published catalog: its families and kernels are the compiled-in ones.
         let z = &self.zk_encryption;
-        let cat = json(&fetch_pinned(&z.catalog, &z.catalog_sha256)?, "channel catalog")?;
-        let mut same = format!("{}@{}", cat["library"].as_str().unwrap_or(""), cat["version"].as_str().unwrap_or(""))
-            == z.library
-            && cat["kernels"]["family_root"].as_str() == Some(self.noir_zk.kernels_family_root.as_str());
+        let cat = json(
+            &fetch_pinned(&z.catalog, &z.catalog_sha256)?,
+            "channel catalog",
+        )?;
+        let mut same = format!(
+            "{}@{}",
+            cat["library"].as_str().unwrap_or(""),
+            cat["version"].as_str().unwrap_or("")
+        ) == z.library
+            && cat["kernels"]["family_root"].as_str()
+                == Some(self.noir_zk.kernels_family_root.as_str());
         for f in cat["families"].as_array().into_iter().flatten() {
             let id = f["id"].as_str().unwrap_or("");
             let name = id.rsplit('/').next().unwrap_or("");
@@ -221,7 +229,11 @@ impl Pins {
                 .is_some_and(|e| Some(crate::hex32(&e.root).as_str()) == f["root"].as_str());
         }
         check(
-            &format!("channel catalog {} (sha256 {}): families and kernels", z.catalog, &z.catalog_sha256[..12]),
+            &format!(
+                "channel catalog {} (sha256 {}): families and kernels",
+                z.catalog,
+                &z.catalog_sha256[..12]
+            ),
             same,
             &mut r,
         )?;
@@ -230,11 +242,24 @@ impl Pins {
         // registry (whose pins the unpacked bytecode is then checked against).
         let e = &self.eid;
         let cat = json(&fetch_pinned(&e.catalog, &e.catalog_sha256)?, "eid catalog")?;
-        let known = |l: &str| eid_circuits::circuits::REGISTRY.iter().any(|x| x.label == l);
+        let known = |l: &str| {
+            eid_circuits::circuits::REGISTRY
+                .iter()
+                .any(|x| x.label == l)
+        };
         let mut steps = 0;
         let mut same = true;
-        for p in cat["packs"].as_object().into_iter().flat_map(|m| m.values()) {
-            for l in p["circuits"].as_array().into_iter().flatten().filter_map(|l| l.as_str()) {
+        for p in cat["packs"]
+            .as_object()
+            .into_iter()
+            .flat_map(|m| m.values())
+        {
+            for l in p["circuits"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|l| l.as_str())
+            {
                 if l.starts_with("dsc_") || l.starts_with("sod_") {
                     steps += 1;
                     same &= known(l);
@@ -254,7 +279,10 @@ impl Pins {
 
         // The published CSCA registry release.
         let c = &self.csca;
-        let reg = json(&fetch_pinned(&c.registry, &c.registry_sha256)?, "csca registry")?;
+        let reg = json(
+            &fetch_pinned(&c.registry, &c.registry_sha256)?,
+            "csca registry",
+        )?;
         check(
             &format!("csca registry {} root {}", c.tag, c.root),
             reg["commitment"]["root"].as_str() == Some(c.root.as_str()),

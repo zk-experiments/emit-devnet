@@ -23,8 +23,10 @@ use std::sync::OnceLock;
 use zk_encryption_circuits::wallet::Fr;
 use zk_encryption_circuits::wallet::poseidon::Poseidon;
 
-pub const ZK_VERIFY: alloy_primitives::Address = address!("0x0000000000000000000000000000000000000100");
-pub const POSEIDON2: alloy_primitives::Address = address!("0x0000000000000000000000000000000000000101");
+pub const ZK_VERIFY: alloy_primitives::Address =
+    address!("0x0000000000000000000000000000000000000100");
+pub const POSEIDON2: alloy_primitives::Address =
+    address!("0x0000000000000000000000000000000000000101");
 
 /// Flat gas of a verification: a Chonk verification takes 17-20 ms on an Apple M5 Max
 /// (bb 7.0.0-nightly.20260927, measured by the wallet before each send), priced at 60 Mgas/s,
@@ -41,7 +43,13 @@ fn zk_verify(input: &[u8], gas_limit: u64, reservoir: u64) -> PrecompileResult {
     if gas > gas_limit {
         return Ok(PrecompileOutput::halt(PrecompileHalt::OutOfGas, reservoir));
     }
-    let fail = |why: String| Ok(PrecompileOutput::revert(gas, Bytes::from(why.into_bytes()), reservoir));
+    let fail = |why: String| {
+        Ok(PrecompileOutput::revert(
+            gas,
+            Bytes::from(why.into_bytes()),
+            reservoir,
+        ))
+    };
     let Some((root, proof)) = input.split_first_chunk::<32>() else {
         return fail("ZK_VERIFY: input shorter than a pipeline root".into());
     };
@@ -66,18 +74,26 @@ fn poseidon2(input: &[u8], gas_limit: u64, reservoir: u64) -> PrecompileResult {
     if gas > gas_limit {
         return halt(PrecompileHalt::OutOfGas);
     }
-    if n == 0 || input.len() % 32 != 0 {
-        return halt(PrecompileHalt::other("POSEIDON2: input is not n >= 1 words"));
+    if n == 0 || !input.len().is_multiple_of(32) {
+        return halt(PrecompileHalt::other(
+            "POSEIDON2: input is not n >= 1 words",
+        ));
     }
     let mut fields = Vec::with_capacity(n);
     for w in input.chunks(32) {
         let f = Fr::from_be_bytes_mod_order(w);
         if be32(&f) != w {
-            return halt(PrecompileHalt::other("POSEIDON2: word is not a canonical field element"));
+            return halt(PrecompileHalt::other(
+                "POSEIDON2: word is not a canonical field element",
+            ));
         }
         fields.push(f);
     }
-    Ok(PrecompileOutput::new(gas, be32(&Poseidon::hash(&fields)).to_vec().into(), reservoir))
+    Ok(PrecompileOutput::new(
+        gas,
+        be32(&Poseidon::hash(&fields)).to_vec().into(),
+        reservoir,
+    ))
 }
 
 fn word(x: u64) -> [u8; 32] {
@@ -119,8 +135,20 @@ mod tests {
         let out = poseidon2(&input, 1_000_000, 0).expect("hash");
         assert_eq!(out.bytes.as_ref(), be32(&Poseidon::hash(&[a, b])));
         assert_eq!(out.gas_used, POSEIDON2_BASE + POSEIDON2_PER_PERM);
-        assert!(poseidon2(&[0xff; 32], 1_000_000, 0).expect("halts").status.is_halt(), "non-canonical");
-        assert!(poseidon2(&[], 1_000_000, 0).expect("halts").status.is_halt(), "empty");
+        assert!(
+            poseidon2(&[0xff; 32], 1_000_000, 0)
+                .expect("halts")
+                .status
+                .is_halt(),
+            "non-canonical"
+        );
+        assert!(
+            poseidon2(&[], 1_000_000, 0)
+                .expect("halts")
+                .status
+                .is_halt(),
+            "empty"
+        );
     }
 
     #[test]
@@ -128,6 +156,9 @@ mod tests {
         let root = emit_devnet_circuits::circuits::pipelines::identity_transfer::ROOT;
         let out = zk_verify(&[root.as_slice(), &[0u8; 64]].concat(), 10_000_000, 0).expect("runs");
         assert_eq!(out.status, PrecompileStatus::Revert);
-        assert!(zk_verify(&[0u8; 96], 1, 0).expect("halts").status.is_halt(), "out of gas");
+        assert!(
+            zk_verify(&[0u8; 96], 1, 0).expect("halts").status.is_halt(),
+            "out of gas"
+        );
     }
 }

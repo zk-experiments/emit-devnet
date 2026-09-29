@@ -35,8 +35,12 @@ impl ArtifactStore for EidStore {
         }
         let label = asset.split('@').next().unwrap_or(asset);
         let path = self.target.join(format!("{label}.json"));
-        let json = std::fs::read_to_string(&path)
-            .map_err(|e| err(format!("{asset}: not in the packs, {}: {e}", path.display())))?;
+        let json = std::fs::read_to_string(&path).map_err(|e| {
+            err(format!(
+                "{asset}: not in the packs, {}: {e}",
+                path.display()
+            ))
+        })?;
         let v: serde_json::Value = serde_json::from_str(&json).map_err(err)?;
         v["bytecode"]
             .as_str()
@@ -79,7 +83,10 @@ fn run(cmd: &mut Command) -> Result<(), Error> {
     if out.status.success() {
         Ok(())
     } else {
-        Err(err(format!("{cmd:?}: {}", String::from_utf8_lossy(&out.stderr))))
+        Err(err(format!(
+            "{cmd:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        )))
     }
 }
 
@@ -87,10 +94,9 @@ fn run(cmd: &mut Command) -> Result<(), Error> {
 /// downloading and compiling what isn't cached. `log` gets a line per network or compile step.
 pub fn pool(pins: &Pins, labels: &BTreeSet<String>, log: &dyn Fn(String)) -> Result<Pool, Error> {
     let e = &pins.eid;
-    let catalog: serde_json::Value = serde_json::from_slice(
-        &fetch_pinned(&e.catalog, &e.catalog_sha256).map_err(err)?,
-    )
-    .map_err(err)?;
+    let catalog: serde_json::Value =
+        serde_json::from_slice(&fetch_pinned(&e.catalog, &e.catalog_sha256).map_err(err)?)
+            .map_err(err)?;
     let version = catalog["version"].as_str().unwrap_or("unknown");
     let packs = cache_dir().join("eid-packs").join(version);
     std::fs::create_dir_all(&packs).map_err(err)?;
@@ -118,11 +124,16 @@ pub fn pool(pins: &Pins, labels: &BTreeSet<String>, log: &dyn Fn(String)) -> Res
         }
         let p = &catalog["packs"][name];
         let (file, sha) = (
-            p["file"].as_str().ok_or_else(|| err(format!("pack {name}: no file")))?,
+            p["file"]
+                .as_str()
+                .ok_or_else(|| err(format!("pack {name}: no file")))?,
             p["sha256"].as_str().unwrap_or_default(),
         );
         let url = format!("{}/{file}", e.packs);
-        log(format!("downloading eid pack {name} ({} MB) from {url}", p["bytes"].as_u64().unwrap_or(0) / 1_000_000));
+        log(format!(
+            "downloading eid pack {name} ({} MB) from {url}",
+            p["bytes"].as_u64().unwrap_or(0) / 1_000_000
+        ));
         let bytes = fetch(&url).map_err(err)?;
         if hex::encode(Sha256::digest(&bytes)) != sha {
             return Err(err(format!("{file}: SHA-256 differs from the catalog")));
@@ -141,7 +152,10 @@ pub fn pool(pins: &Pins, labels: &BTreeSet<String>, log: &dyn Fn(String)) -> Res
         .collect();
     if !missing.is_empty() {
         if !src.join("Nargo.toml").exists() {
-            log(format!("fetching eid-circuits {} (Noir source) from {}", e.rev, e.source));
+            log(format!(
+                "fetching eid-circuits {} (Noir source) from {}",
+                e.rev, e.source
+            ));
             std::fs::create_dir_all(&src).map_err(err)?;
             let git = |args: &[&str]| run(Command::new("git").args(args).current_dir(&src));
             git(&["init", "-q"])?;
@@ -149,7 +163,10 @@ pub fn pool(pins: &Pins, labels: &BTreeSet<String>, log: &dyn Fn(String)) -> Res
             git(&["checkout", "-q", "FETCH_HEAD"])?;
         }
         for l in missing {
-            log(format!("compiling eid {l} from source (nargo {})", crate::circuits::NOIR_VERSION));
+            log(format!(
+                "compiling eid {l} from source (nargo {})",
+                crate::circuits::NOIR_VERSION
+            ));
             run(Command::new(nargo())
                 .args(["compile", "--silence-warnings", "--package", l])
                 .current_dir(&src))?;

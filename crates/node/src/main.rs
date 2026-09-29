@@ -74,7 +74,12 @@ impl EvmFactory for EmitEvmFactory {
         input: EvmEnv,
         inspector: I,
     ) -> Self::Evm<DB, I> {
-        EthEvm::new(self.create_evm(db, input).into_inner().with_inspector(inspector), true)
+        EthEvm::new(
+            self.create_evm(db, input)
+                .into_inner()
+                .with_inspector(inspector),
+            true,
+        )
     }
 }
 
@@ -89,7 +94,10 @@ where
     type EVM = EthEvmConfig<ChainSpec, EmitEvmFactory>;
 
     async fn build_evm(self, ctx: &BuilderContext<Node>) -> eyre::Result<Self::EVM> {
-        Ok(EthEvmConfig::new_with_evm_factory(ctx.chain_spec(), EmitEvmFactory))
+        Ok(EthEvmConfig::new_with_evm_factory(
+            ctx.chain_spec(),
+            EmitEvmFactory,
+        ))
     }
 }
 
