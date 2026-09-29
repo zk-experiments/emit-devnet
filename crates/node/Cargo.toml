@@ -1,0 +1,29 @@
+[package]
+name = "emit-devnet-node"
+description = "A reth dev node with the ZK_VERIFY (folded Chonk proofs of the pinned deployment) and POSEIDON2 precompiles"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "emit-node"
+path = "src/main.rs"
+
+[dependencies]
+emit-devnet-circuits.workspace = true
+noir-zk-core.workspace = true
+noir-zk-backend.workspace = true
+zk-encryption-circuits.workspace = true
+ark-ff.workspace = true
+hex.workspace = true
+# reth v2.6.0 (alloy-evm 0.39, revm 43), pinned by tag.
+reth-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v2.6.0", features = ["node", "evm", "pool", "cli"] }
+reth-tracing = { git = "https://github.com/paradigmxyz/reth", tag = "v2.6.0" }
+alloy-evm = { version = "0.39.0", default-features = false }
+alloy-primitives = "1.6.1"
+alloy-sol-types = "1.6.1"
+eyre = "0.6"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
