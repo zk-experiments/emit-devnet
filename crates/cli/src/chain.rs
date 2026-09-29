@@ -10,18 +10,22 @@ use zk_encryption_circuits::wallet::emit::{Envelope, Kem};
 use zk_encryption_circuits::wallet::grumpkin::Point;
 use zk_encryption_circuits::wallet::lattice::Ciphertext;
 
-alloy::sol! {
-    #[sol(rpc)]
-    contract EmitV2Pool {
-        event NewNullifier(bytes32 nullifier);
-        event NewCommitment(bytes32 commitment, uint256 leafIndex);
-        event Envelope(bytes32 cT, bytes32[2] e, bytes32 tag, bytes32 ct, bytes pqCiphertext, bytes32[6] cNote, bytes32[6] cId);
+#[allow(clippy::too_many_arguments)]
+mod abi {
+    alloy::sol! {
+        #[sol(rpc)]
+        contract EmitV2Pool {
+            event NewNullifier(bytes32 nullifier);
+            event NewCommitment(bytes32 commitment, uint256 leafIndex);
+            event Envelope(bytes32 cT, bytes32[2] e, bytes32 tag, bytes32 ct, bytes pqCiphertext, bytes32[6] cNote, bytes32[6] cId);
 
-        function transact(bytes32 root, bytes32[2] nullifiers, bytes32[2] commitments, uint256 vPubIn, uint256 vPubOut, uint256 fee, address payout, bytes pqCiphertext, bytes proof) external payable;
-        function currentRoot() external view returns (uint256);
-        function nextIndex() external view returns (uint256);
+            function transact(bytes32 root, bytes32[2] nullifiers, bytes32[2] commitments, uint256 vPubIn, uint256 vPubOut, uint256 fee, address payout, bytes pqCiphertext, bytes proof) external payable;
+            function currentRoot() external view returns (uint256);
+            function nextIndex() external view returns (uint256);
+        }
     }
 }
+pub use abi::EmitV2Pool;
 
 pub fn b256(f: &Fr) -> B256 {
     use zk_encryption_circuits::wallet::poseidon::FieldHex;
@@ -50,7 +54,10 @@ fn envelope(e: &EmitV2Pool::Envelope) -> eyre::Result<Envelope> {
     Ok(Envelope {
         c_t: f(&e.cT),
         kem: Kem {
-            ephemeral: Point { x: f(&e.e[0]), y: f(&e.e[1]) },
+            ephemeral: Point {
+                x: f(&e.e[0]),
+                y: f(&e.e[1]),
+            },
             tag: f(&e.tag),
             ct_commitment: f(&e.ct),
             ct,
@@ -74,7 +81,11 @@ pub async fn events(
     for log in logs {
         let tx = log.transaction_hash.unwrap_or_default();
         if out.last().is_none_or(|t| t.tx != tx) {
-            out.push(TxEvents { tx, block: log.block_number.unwrap_or_default(), ..Default::default() });
+            out.push(TxEvents {
+                tx,
+                block: log.block_number.unwrap_or_default(),
+                ..Default::default()
+            });
         }
         let t = out.last_mut().expect("pushed");
         match log.topic0() {
@@ -84,7 +95,8 @@ pub async fn events(
             }
             Some(&EmitV2Pool::NewCommitment::SIGNATURE_HASH) => {
                 let e = log.log_decode::<EmitV2Pool::NewCommitment>()?.inner.data;
-                t.commitments.push((fr(&e.commitment), e.leafIndex.to::<u64>()));
+                t.commitments
+                    .push((fr(&e.commitment), e.leafIndex.to::<u64>()));
             }
             Some(&EmitV2Pool::Envelope::SIGNATURE_HASH) => {
                 let e = log.log_decode::<EmitV2Pool::Envelope>()?.inner.data;
@@ -132,7 +144,14 @@ pub async fn transact(p: &impl Provider, pool: Address, t: Transact) -> eyre::Re
         )
         .value(U256::from(t.v_in));
     let calldata = call.calldata().len();
+    // The estimate runs against the pending block, whose producer may differ from the one that
+    // includes the transaction (paying the fee to a fresh coinbase costs 25,000 more): pad it.
+    let estimate = call
+        .estimate_gas()
+        .await
+        .map_err(|e| eyre::eyre!("transact refused: {e}"))?;
     let receipt = call
+        .gas(estimate + estimate / 5)
         .send()
         .await
         .map_err(|e| eyre::eyre!("transact refused: {e}"))?

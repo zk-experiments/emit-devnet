@@ -158,15 +158,18 @@ impl Wallet {
             }
         }
         let spent: Vec<String> = t.nullifiers.iter().map(|n| n.hex()).collect();
-        let sk_nullifiers: Vec<String> = self.notes.iter().map(|n| self.nullifier(n).hex()).collect();
+        let sk_nullifiers: Vec<String> =
+            self.notes.iter().map(|n| self.nullifier(n).hex()).collect();
         let mut i = 0;
         self.notes.retain(|_| {
             i += 1;
             !spent.contains(&sk_nullifiers[i - 1])
         });
-        let (Some(envelope), [n0, n1], [c0, c1]) =
-            (&t.envelope, t.nullifiers.as_slice(), t.commitments.as_slice())
-        else {
+        let (Some(envelope), [n0, n1], [c0, c1]) = (
+            &t.envelope,
+            t.nullifiers.as_slice(),
+            t.commitments.as_slice(),
+        ) else {
             return Ok(None);
         };
         let d = Delivery {
@@ -180,11 +183,17 @@ impl Wallet {
             Scan::Ratchet { t, note, dg1 } => (note, dg1, format!("ratchet index {t}")),
             Scan::NotMine => return Ok(None),
             Scan::Invalid(e) => {
-                eprintln!("{}: tx {} addressed here but refused: {e:?}", self.name, t.tx);
+                eprintln!(
+                    "{}: tx {} addressed here but refused: {e:?}",
+                    self.name, t.tx
+                );
                 return Ok(None);
             }
         };
-        eyre::ensure!(note.commitment(cid, self.pk()) == c0.0, "note does not open C0");
+        eyre::ensure!(
+            note.commitment(cid, self.pk()) == c0.0,
+            "note does not open C0"
+        );
         let mrz = Document::mrz(&dg1);
         if !self.notes.iter().any(|n| n.commitment == c0.0.hex()) && note.value > 0 {
             self.notes.push(Note {
@@ -200,7 +209,12 @@ impl Wallet {
     }
 
     /// Catches up with the pool's events up to the latest block; prints received notes.
-    pub async fn sync(&mut self, p: &impl Provider, pool: Address, home: &Path) -> eyre::Result<usize> {
+    pub async fn sync(
+        &mut self,
+        p: &impl Provider,
+        pool: Address,
+        home: &Path,
+    ) -> eyre::Result<usize> {
         let cid = Fr::from(p.get_chain_id().await?);
         let latest = p.get_block_number().await?;
         if latest <= self.synced {
@@ -225,7 +239,12 @@ impl Wallet {
 
     /// Picks `k` notes (smallest first) worth at least `need`.
     pub fn pick(&self, need: u128, max: usize) -> eyre::Result<Vec<Note>> {
-        let mut notes: Vec<Note> = self.notes.iter().filter(|n| n.index.is_some()).cloned().collect();
+        let mut notes: Vec<Note> = self
+            .notes
+            .iter()
+            .filter(|n| n.index.is_some())
+            .cloned()
+            .collect();
         notes.sort_by_key(Note::value);
         if let Some(n) = notes.iter().find(|n| n.value() >= need) {
             return Ok(vec![n.clone()]);
@@ -254,7 +273,8 @@ impl Wallet {
         ctx: &crate::Ctx,
         p: &impl Provider,
     ) -> eyre::Result<Receipt> {
-        let cid = Fr::from(p.get_chain_id().await?);
+        let chain_id = p.get_chain_id().await?;
+        let cid = Fr::from(chain_id);
         let tree = self.tree();
         let root = tree.root();
         let sk = self.sk();
@@ -270,7 +290,10 @@ impl Wallet {
             })
             .collect();
         let mut ins = ins.into_iter();
-        let ins = [ins.next().unwrap_or_else(InNote::dummy), ins.next().unwrap_or_else(InNote::dummy)];
+        let ins = [
+            ins.next().unwrap_or_else(InNote::dummy),
+            ins.next().unwrap_or_else(InNote::dummy),
+        ];
         let outs = plan.outs.map(|(pk, v, _)| OutNote::to(pk, v));
         // The channel: advancing it changes the state, which is written before broadcasting.
         let channel = match &plan.to {
@@ -287,8 +310,10 @@ impl Wallet {
             }
         };
         let payout = address_field(plan.payout);
-        let t = Transfer::build(cid, root, ins, outs, plan.v_in, plan.v_out, plan.fee, payout, channel)
-            .map_err(|e| eyre::eyre!("transfer: {e:?}"))?;
+        let t = Transfer::build(
+            cid, root, ins, outs, plan.v_in, plan.v_out, plan.fee, payout, channel,
+        )
+        .map_err(|e| eyre::eyre!("transfer: {e:?}"))?;
         for (j, (_, v, keep)) in plan.outs.iter().enumerate() {
             if *keep && *v > 0 {
                 let o = t.opening(j);
@@ -306,7 +331,9 @@ impl Wallet {
 
         // Prove: the passport's eid steps, the session, DG1 sealed, the transfer, the note sealed.
         let doc = document::by_name(&self.document)?;
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
         let reg = ctx.registry()?;
         let w = doc.witnesses(reg, now, t.ctx, t.channel.s)?;
         let pool = ctx.pool(&w.labels)?;
@@ -324,13 +351,22 @@ impl Wallet {
             .map_err(e("sod"))?
             .app(KernelStepDocument::select(&w.labels[2], w.document).map_err(e("document"))?)
             .map_err(e("document"))?
-            .app(KernelStepSession::select("channel_session", t.session_inputs()).map_err(e("session"))?)
+            .app(
+                KernelStepSession::select("channel_session", t.session_inputs())
+                    .map_err(e("session"))?,
+            )
             .map_err(e("session"))?
-            .app(KernelStepEnvelope::select("channel_envelope", w.envelope).map_err(e("envelope"))?)
+            .app(
+                KernelStepEnvelope::select("channel_envelope", w.envelope)
+                    .map_err(e("envelope"))?,
+            )
             .map_err(e("envelope"))?
             .app(KernelStepTransfer::select("transfer", t.inputs()).map_err(e("transfer"))?)
             .map_err(e("transfer"))?
-            .app(KernelStepNoteEnvelope::select("channel_envelope", t.note_inputs()).map_err(e("note"))?)
+            .app(
+                KernelStepNoteEnvelope::select("channel_envelope", t.note_inputs())
+                    .map_err(e("note"))?,
+            )
             .map_err(e("note"))?
             .hiding(&DEPLOYMENT)
             .map_err(e("prove"))?;
@@ -339,7 +375,8 @@ impl Wallet {
         let proof_bytes = proof.len();
         // What ZK_VERIFY will do, locally first (and timed: the precompile's gas is priced on it).
         let start = Instant::now();
-        emit_devnet_circuits::verify(&identity_transfer::ROOT, &proof).map_err(e("local verification"))?;
+        emit_devnet_circuits::verify(&identity_transfer::ROOT, &proof)
+            .map_err(e("local verification"))?;
         let verify_ms = start.elapsed().as_secs_f64() * 1e3;
 
         let signer: alloy::signers::local::PrivateKeySigner = self.key.parse()?;
@@ -366,8 +403,18 @@ impl Wallet {
         let sent = match sent {
             Ok(s) => s,
             Err(err) => {
-                // Nothing was appended: forget the pending outputs (the channel stays advanced).
-                self.pending.retain(|n| !t.commitments.iter().any(|c| c.hex() == n.commitment));
+                // Nothing was appended: forget the pending outputs. A ratchet key stays consumed
+                // (the receiver's window skips it); a handshake nobody saw opened no channel, so
+                // the contact starts over with a fresh one (its C_t is never reused).
+                self.pending
+                    .retain(|n| !t.commitments.iter().any(|c| c.hex() == n.commitment));
+                if let (Some(name), true) = (&plan.to, t.channel.is_handshake)
+                    && let Some(c) = self.contacts.get_mut(name)
+                {
+                    let bundle = base64_bundle(&c.bundle)?;
+                    c.sender = Sender::accept(&bundle, chain_id, now, &|_| None)
+                        .map_err(|e| eyre::eyre!("bundle: {e:?}"))?;
+                }
                 self.save(&ctx.home)?;
                 return Err(err);
             }
@@ -389,7 +436,9 @@ impl Wallet {
         document::by_name(document)?;
         let sk = Rng::field();
         let receiver = Receiver::generate(Emit::pk(sk), WINDOW);
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
         let bundle = zk_encryption_circuits::wallet::bundle::Bundle {
             chain_id,
             pk_b: receiver.pk(),
@@ -420,4 +469,12 @@ impl Wallet {
 pub fn address_field(a: Address) -> Fr {
     use ark_ff::PrimeField;
     Fr::from_be_bytes_mod_order(a.as_slice())
+}
+
+/// A base64url bundle's bytes.
+pub fn base64_bundle(b: &str) -> eyre::Result<Vec<u8>> {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(b.trim())
+        .map_err(|e| eyre::eyre!("bundle: not base64url: {e}"))
 }

@@ -4,9 +4,9 @@
 use ark_ff::Zero;
 pub use noir_zk_core::tree::Path;
 use zk_encryption_circuits::wallet::Fr;
-use zk_encryption_circuits::wallet::poseidon::Poseidon;
 #[cfg(test)]
 use zk_encryption_circuits::wallet::poseidon::FieldHex;
+use zk_encryption_circuits::wallet::poseidon::Poseidon;
 
 pub const TREE_DEPTH: usize = 32;
 
@@ -22,13 +22,19 @@ impl Default for Tree {
         for l in 0..TREE_DEPTH {
             zeros.push(Poseidon::hash(&[zeros[l], zeros[l]]));
         }
-        Self { zeros, leaves: vec![] }
+        Self {
+            zeros,
+            leaves: vec![],
+        }
     }
 }
 
 impl Tree {
     pub fn from_leaves(leaves: Vec<Fr>) -> Self {
-        Self { leaves, ..Self::default() }
+        Self {
+            leaves,
+            ..Self::default()
+        }
     }
 
     /// The path of leaf `index` (siblings from the leaf up).
@@ -48,7 +54,8 @@ impl Tree {
     }
 
     pub fn root(&self) -> Fr {
-        self.path(0).root(*self.leaves.first().unwrap_or(&Fr::zero()))
+        self.path(0)
+            .root(*self.leaves.first().unwrap_or(&Fr::zero()))
     }
 }
 

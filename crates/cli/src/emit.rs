@@ -28,7 +28,10 @@ impl InNote {
             value: 0,
             rho: Rng::field(),
             r: Fr::zero(),
-            path: Path { index: 0, siblings: vec![Fr::zero(); TREE_DEPTH] },
+            path: Path {
+                index: 0,
+                siblings: vec![Fr::zero(); TREE_DEPTH],
+            },
         }
     }
 }
@@ -42,7 +45,11 @@ pub struct OutNote {
 
 impl OutNote {
     pub fn to(pk: Fr, value: u128) -> Self {
-        Self { pk, value, r: Rng::field() }
+        Self {
+            pk,
+            value,
+            r: Rng::field(),
+        }
     }
 }
 
@@ -91,7 +98,10 @@ impl Transfer {
             return Err(BuildError::ValueNotConserved);
         }
         for n in ins.iter().filter(|n| n.value != 0) {
-            if n.path.root(Emit::commitment(cid, Emit::pk(n.sk), n.value, n.rho, n.r)) != root {
+            if n.path
+                .root(Emit::commitment(cid, Emit::pk(n.sk), n.value, n.rho, n.r))
+                != root
+            {
                 return Err(BuildError::NotInTree);
             }
         }
@@ -123,7 +133,11 @@ impl Transfer {
 
     /// Output `j`'s opening.
     pub fn opening(&self, j: usize) -> NoteOpening {
-        NoteOpening { value: self.outs[j].value, rho: self.rhos[j], r: self.outs[j].r }
+        NoteOpening {
+            value: self.outs[j].value,
+            rho: self.rhos[j],
+            r: self.outs[j].r,
+        }
     }
 
     /// The transfer app's `Prover.toml`: the notes as tables and the note salt.
@@ -139,11 +153,18 @@ impl Transfer {
                 ("rho", s(n.rho)),
                 ("r", s(n.r)),
                 ("index", Value::String(n.path.index.to_string())),
-                ("path", Value::Array(n.path.siblings.iter().map(|x| s(*x)).collect())),
+                (
+                    "path",
+                    Value::Array(n.path.siblings.iter().map(|x| s(*x)).collect()),
+                ),
             ])
         };
         let out = |o: &OutNote| {
-            table(vec![("pk", s(o.pk)), ("value", s(Fr::from(o.value))), ("r", s(o.r))])
+            table(vec![
+                ("pk", s(o.pk)),
+                ("value", s(Fr::from(o.value))),
+                ("r", s(o.r)),
+            ])
         };
         let mut t = Table::new();
         t.insert("cid".into(), s(self.cid));
@@ -152,8 +173,14 @@ impl Transfer {
         t.insert("v_out".into(), s(Fr::from(self.v_out)));
         t.insert("fee".into(), s(Fr::from(self.fee)));
         t.insert("payout_recipient".into(), s(self.payout));
-        t.insert("ins".into(), Value::Array(self.ins.iter().map(note).collect()));
-        t.insert("outs".into(), Value::Array(self.outs.iter().map(out).collect()));
+        t.insert(
+            "ins".into(),
+            Value::Array(self.ins.iter().map(note).collect()),
+        );
+        t.insert(
+            "outs".into(),
+            Value::Array(self.outs.iter().map(out).collect()),
+        );
         t.insert("note_salt".into(), s(self.note_salt));
         toml::to_string(&t).expect("toml")
     }
