@@ -1,0 +1,8 @@
+target/
+crates/circuits/noir/target/
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+.devnet/
+.DS_Store
+*.log

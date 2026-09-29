@@ -1,0 +1,80 @@
+# Written by noir-zk freeze; do not edit.
+
+noir = "1.0.0-rc.3"
+bb = "7.0.0-nightly.20260927"
+
+[library]
+name = "emit-devnet"
+version = "0.1.0"
+
+# ------------------------------------------------------------ families (hand-written; freeze keeps them)
+
+# The Emit V2 transfer (the JoinSplit): [ctx, cid, root, N0, N1, C0, C1, v_in, v_out, fee, payout_recipient, note_commitment];
+# bound to the session's ctx (it recomputes it), the rest public, the note payload's commitment its link out.
+[[family]]
+layer = "emit"
+name = "transfer"
+members = ["transfer"]
+link_out = { index = 11, link = "PayloadCommitment" }
+binds = [{ slot = "ctx", index = 0 }]
+public_from = 1
+slots = ["cid", "root", "n0", "n1", "c0", "c1", "v_in", "v_out", "fee", "payout"]
+
+[[circuit]]
+label = "transfer"
+version = "1.0.0"
+system = "chonk"
+role = "app"
+status = "active"
+bytecode_sha256 = "1f4f1f059eae99e1cd9329e9dd64a132526c5524686db4cec17f45805ac1fb25"
+vk_sha256 = "3fd90cdf507e1b698f0cfb7d3645d79d0bdd8e40ae5211cb29d3bbd186e8c4c6"
+vk_hash = "0x28e182ade77c7d2f1198c9ff2c838d38c646ae9ab53c0a334ecf4fffd72e92a7"
+
+# ------------------------------------------------------------ wrapped layers (build.rs: noir_zk_codegen::wrapped)
+
+# The identity layer: eid-circuits v0.8.0 (DSC, SOD and document steps).
+[[family]]
+layer = "eid"
+name = "dsc"
+source = "eid-circuits"
+
+[[family]]
+layer = "eid"
+name = "sod"
+source = "eid-circuits"
+
+[[family]]
+layer = "eid"
+name = "document"
+source = "eid-circuits"
+
+# The channel layer: zk-encryption-circuits v0.1.0.
+[[family]]
+layer = "channel"
+name = "session"
+source = "zk-encryption"
+
+[[family]]
+layer = "channel"
+name = "envelope"
+source = "zk-encryption"
+
+[[family]]
+layer = "channel"
+name = "note_envelope"
+source = "zk-encryption"
+
+# ------------------------------------------------------------ pipelines
+# The session publishes ctx and C_t; the DG1 envelope, the transfer and the
+# note envelope are bound to them. The document's DG1 commitment is consumed
+# by its envelope before the transfer leaves the note's.
+
+# A document, the session, DG1 sealed, the transfer, its note opening sealed: 32 slots.
+[[pipeline]]
+name = "identity_transfer"
+positions = ["eid-circuits/eid/dsc", "eid-circuits/eid/sod", "eid-circuits/eid/document", "zk-encryption/channel/session", "zk-encryption/channel/envelope", "emit-devnet/emit/transfer", "zk-encryption/channel/note_envelope"]
+
+# A transfer with no document: the session, the transfer, its note opening sealed.
+[[pipeline]]
+name = "transfer_only"
+positions = ["zk-encryption/channel/session", "emit-devnet/emit/transfer", "zk-encryption/channel/note_envelope"]

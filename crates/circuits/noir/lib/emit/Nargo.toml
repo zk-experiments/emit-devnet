@@ -1,0 +1,9 @@
+[package]
+name = "emit"
+type = "lib"
+authors = ["zk-experiments"]
+compiler_version = ">=1.0.0"
+
+[dependencies]
+channel = { git = "https://github.com/zk-experiments/zk-encryption", tag = "v0.1.0", directory = "noir/lib/channel" }
+poseidon = { tag = "v0.3.0", git = "https://github.com/noir-lang/poseidon" }

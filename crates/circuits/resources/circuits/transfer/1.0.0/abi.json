@@ -1,0 +1,172 @@
+{
+  "abi_version": 1,
+  "error_types": {
+    "1066744642700416338": {
+      "error_kind": "string",
+      "string": "value is not conserved"
+    },
+    "12469291177396340830": {
+      "error_kind": "string",
+      "string": "call to assert_max_bit_size"
+    },
+    "15835548349546956319": {
+      "error_kind": "string",
+      "string": "Field failed to decompose into specified 32 limbs"
+    },
+    "8198257316009791542": {
+      "error_kind": "string",
+      "string": "input nullifiers must differ"
+    },
+    "8504976190148749821": {
+      "error_kind": "string",
+      "string": "input note is not in the tree"
+    }
+  },
+  "parameters": [
+    {
+      "name": "cid",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "root",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "v_in",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "v_out",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "fee",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "payout_recipient",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "ins",
+      "type": {
+        "kind": "array",
+        "length": 2,
+        "type": {
+          "fields": [
+            {
+              "name": "sk",
+              "type": {
+                "kind": "field"
+              }
+            },
+            {
+              "name": "value",
+              "type": {
+                "kind": "field"
+              }
+            },
+            {
+              "name": "rho",
+              "type": {
+                "kind": "field"
+              }
+            },
+            {
+              "name": "r",
+              "type": {
+                "kind": "field"
+              }
+            },
+            {
+              "name": "index",
+              "type": {
+                "kind": "field"
+              }
+            },
+            {
+              "name": "path",
+              "type": {
+                "kind": "array",
+                "length": 32,
+                "type": {
+                  "kind": "field"
+                }
+              }
+            }
+          ],
+          "kind": "struct",
+          "path": "emit::InNote"
+        }
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "outs",
+      "type": {
+        "kind": "array",
+        "length": 2,
+        "type": {
+          "fields": [
+            {
+              "name": "pk",
+              "type": {
+                "kind": "field"
+              }
+            },
+            {
+              "name": "value",
+              "type": {
+                "kind": "field"
+              }
+            },
+            {
+              "name": "r",
+              "type": {
+                "kind": "field"
+              }
+            }
+          ],
+          "kind": "struct",
+          "path": "emit::OutNote"
+        }
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "note_salt",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    }
+  ],
+  "return_type": {
+    "abi_type": {
+      "kind": "array",
+      "length": 12,
+      "type": {
+        "kind": "field"
+      }
+    },
+    "visibility": "databus"
+  }
+}
