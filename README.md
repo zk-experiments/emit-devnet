@@ -66,7 +66,7 @@ pins.toml
 | identity layer | `eid-circuits@0.8.0`, git tag `v0.8.0` (`eid-circuits`, `eid-prover`) | DSC, SOD and document steps: packs on `https://circuits.zk-eid.dev`, catalog `catalog@0.8.0.json` | catalog SHA-256 `f9119063…e092`, its version and its DSC/SOD/document labels in eid's registry; each pack's SHA-256 against the catalog; every unpacked `.b64` / `.vk` against eid's registry pins |
 | CSCA registry | tag `registry-20260928-1039`, root `0x27bef40a…02a2` | `https://registry.zk-eid.dev/<tag>/registry.json` | file SHA-256 `17a21c0f…4444` and `commitment.root` |
 | deployment | root `0x0c395ade…5a87`; `identity_transfer` `0x2e18854a…968b` (7); `transfer_only` `0x1cd91016…14d4` (3); `identity_register` `0x12bb22de…c445` (4); `member_transfer` `0x15546142…c784` (5) | computed by the codegen | equal to the generated constants |
-| toolchain | nargo 1.0.0-rc.3, bb 7.0.0-nightly.20260927 (via `barretenberg-rs`), reth v2.6.0, solc 0.8.30 | `~/.toolchains`, crates.io, git tag | nargo and noir-zk-cli 0.3.0 only to refreeze this repo's layers: `nargo compile --workspace` in `crates/circuits/noir`, then `noir-zk freeze --target noir/target --out . --assets assets` in `crates/circuits` (`~/.toolchains/noir-1.0.0-rc.3/bin/nargo`, `~/.toolchains/noir-zk-0.3.0/bin/noir-zk`) |
+| toolchain | nargo 1.0.0-rc.3, bb 7.0.0-nightly.20260927 (via `barretenberg-rs`), reth v2.6.0, solc 0.8.30 | noirup / `cargo install`, crates.io, git tag | nargo 1.0.0-rc.3 and noir-zk-cli 0.3.0 only to refreeze this repo's layers: `nargo compile --workspace` in `crates/circuits/noir`, then `noir-zk freeze --target noir/target --out . --assets assets` in `crates/circuits` |
 
 Caches: `~/.cache/emit-devnet` (`$EMIT_DEVNET_CACHE`): the pinned files, eid's unpacked packs (the demo needs common, rsa4096, rsa2048, bp384, bp256: about 300 MB). The prover reads bb's CRS from `~/.bb-crs` (`$BB_CRS_PATH`), checked against noir-zk's pinned hashes.
 
@@ -103,13 +103,220 @@ zkpool -w bob balance
 
 The node alone: `emit-node node --dev --chain genesis.json --http --ws` (all of reth's flags apply). The pool: `scripts/devnet.sh` runs `forge script script/Deploy.s.sol` with `DEPLOYMENT_ROOT`, `TRANSFER_PIPELINE`, `REGISTER_PIPELINE`, `MEMBER_PIPELINE` and `REGISTRY_ROOTS` from `zkpool info`; the deployer's first contract is `0x5FbDB2315678afecb367f032d93F642f64180aa3`.
 
-Dev accounts (the standard test mnemonic, funded with 10⁹ ETH in `genesis.json`; never use them elsewhere):
+Dev accounts: accounts 0–2 of the public Anvil/Hardhat test mnemonic (`test test … junk`), whose private keys are published in Foundry's and Hardhat's documentation; funded with 10⁹ ETH in `genesis.json`. They are public knowledge: never use them, or send funds to them, on any real network.
 
 | role | address | private key |
 |---|---|---|
 | deployer (pool owner) | `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` | `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80` |
 | Alice | `0x70997970C51812dc3A010C7d01b50e0d17dc79C8` | `0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d` |
 | Bob | `0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC` | `0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a` |
+
+## Demo scenario
+
+`scripts/demo.sh` runs the whole flow below and checks it; this section walks through it step by step, with the output of one run (Apple M5 Max; tx hashes, keys and commitments shown as `0x…`, timings as ≈, gas as measured). Every `zkpool` command reads `ZKPOOL_POOL`, `ZKPOOL_HOME`, `ZKPOOL_RPC` and `ZKPOOL_WS` from the environment `scripts/devnet.sh` exports. Alice holds the US fixture (RSA-4096 CSCA → RSA-2048 DSC), Bob the German one (brainpoolP384 → brainpoolP256); both are synthetic passports of the same specimen holder, so their MRZs differ only in the country.
+
+What any observer can read from a `transact`: its calldata (the pipeline root, the note tree root, the two nullifiers and commitments, `vPubIn`, `vPubOut`, `fee`, `payout`, the 1,536-byte ML-KEM ciphertext and the 40,192-byte proof) and, by running `ZK_VERIFY` on that proof, every public slot; the events; the sending EOA (devnet only, see [What is devnet-only](#what-is-devnet-only)). Which pipeline was used is public, so a full-passport transfer is distinguishable from a member one. None of it says who pays whom or how much moves inside the pool: nullifiers aren't linkable to the commitments they spend, commitments hide their owner and value, and the envelopes are ciphertexts.
+
+### 1. Start the node and deploy the pool
+
+```sh
+source scripts/devnet.sh
+```
+
+Starts `emit-node node --dev` on `genesis.json` (datadir `.devnet/chain`, http 8545, ws 8546), checks the pins, then deploys with `forge script script/Deploy.s.sol` from the deployer account.
+
+```
+pins: ok  emit-devnet layers emit-devnet@0.2.0 family roots (transfer, transfer_holder, register, member)
+pins: ok  deployment root 0x0c395ade9bfd15f78d0d130432fa6201426883d08f51682966298a67f9375a87
+pins: ok  pipeline identity_register root 0x12bb22def4df1c088cf5398a371ac04796fb5565680983ad9f44a9446c91c445 length 4
+pins: ok  pipeline member_transfer root 0x155461422196bdf5907cc4d76e85c132c3466f76bcaea457bc93377160e6c784 length 5
+…
+precompiles: ZK_VERIFY at 0x0000000000000000000000000000000000000100 (1200000 gas + 3/word), POSEIDON2 at 0x0000000000000000000000000000000000000101 (60 + 360/permutation)
+node pid …, rpc http://127.0.0.1:8545, EmitV2Pool 0x5FbDB2315678afecb367f032d93F642f64180aa3
+```
+
+On-chain: the `EmitV2Pool` constructor stores the deployment root and the three accepted pipeline roots (`identity_transfer`, `identity_register`, `member_transfer`) and creates its `IdentityTree`; two `addRegistryRoot` calls accept the fixtures' CSCA registry root and the published one (`RegistryRoot` ×2).
+
+### 2. Identities
+
+```sh
+zkpool identity new --name alice --document us_rsa4096_rsa2048
+zkpool identity new --name bob --document de_bp384_bp256
+```
+
+Each binds a fixture passport, draws the shielded key `sk` (address `pk = H("emit-v2/pk", sk)`) and the receiver's Grumpkin and ML-KEM-768 keys, writes `$ZKPOOL_HOME/<name>.json` and the bundle `$ZKPOOL_HOME/<name>.bundle` (printed; `zkpool -w <name> identity show` prints it again).
+
+```
+identity alice: passport us_rsa4096_rsa2048 (P<USAERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<L898902C36USA7408122F3404159ZE184226B<<<<<16)
+  EOA 0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+  shielded address pk 0x…
+identity bob: passport de_bp384_bp256 (P<D<<ERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<L898902C36D<<7408122F3404159ZE184226B<<<<<16)
+  EOA 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
+  shielded address pk 0x…
+```
+
+On-chain: nothing.
+
+### 3. Bundles exchanged
+
+```sh
+zkpool -w alice contact add --name bob --bundle "$(cat $ZKPOOL_HOME/bob.bundle)"
+zkpool -w bob contact add --name alice --bundle "$(cat $ZKPOOL_HOME/alice.bundle)"
+```
+
+Each checks the other's bundle (format, chain id, validity window, the Grumpkin key on the curve, the ML-KEM key and its commitment) and keeps it as a contact, the prerequisite for a handshake.
+
+```
+alice: contact bob accepted (pk 0x…, valid until …)
+bob: contact alice accepted (pk 0x…, valid until …)
+```
+
+On-chain: nothing; bundles travel out of band.
+
+### 4. Each registers once in the identity cache
+
+```sh
+zkpool -w alice identity register
+zkpool -w bob identity register
+```
+
+Proves `identity_register` (eid's DSC, SOD and document steps for the passport, with the document in this epoch's registration scope read from the pool, then `register`), with a fresh blinding `r`, verifies it locally and sends `register(proof)`. The expiry is the epoch's last second or the passport's expiry, whichever is first.
+
+```
+alice: registered (identity leaf 0, valid until …): identity_register proved in ≈1.8 s (40192 B proof, verified locally in 16 ms), gas 2591853 (40260 B calldata), block 2, tx 0x…
+bob: registered (identity leaf 1, valid until …): identity_register proved in ≈3.8 s (40192 B proof, verified locally in 16 ms), gas 2007482 (40260 B calldata), block 3, tx 0x…
+```
+
+On-chain: `register(bytes proof)`, calldata the proof alone. `ZK_VERIFY` returns 6 slots: `registry_root, date, scope, nullifier, leaf, expiry`. The pool checks the registry root is accepted, the date is within a day of the block time, `scope = registrationScope(date / 7 days)`, the document's nullifier is unused and `date ≤ expiry` < the epoch's end; then writes `documentRegistered[nullifier]`, appends the leaf to the identity tree (a new identity root in its ring of 32) and emits `IdentityRegistered(leaf, index, expiry)`. Alice's is the first insert and writes the tree's filled subtrees, hence 2.59M gas against Bob's 2.01M. An observer sees the leaf, its index and expiry, the scoped nullifier, the date and the sending EOA, but the leaf is blinded: Bob, who knows Alice's address and will read her MRZ, can't tell which registration is hers. The wallet stores the leaf, index, DG1 salt, expiry and `r`.
+
+### 5. Bob listens
+
+```sh
+zkpool -w bob listen --until 2 --timeout 900 &
+```
+
+Subscribes to the pool's logs over WebSocket and syncs on each new block's events; stops after 2 received notes.
+
+### 6. Alice deposits 100
+
+```sh
+zkpool -w alice deposit --amount 100
+```
+
+A registered holder proves `member_transfer`: `identity_member` (her leaf under the current identity root, today's date, a fresh DG1 commitment, the holder tag), the channel session, the DG1 envelope, `transfer_holder` and the note envelope. The inputs are two dummy notes of her own key (fresh nullifiers), the outputs a 100 ETH note and a zero note to herself; the channel is a throwaway (nobody can open the envelopes); fee 0.
+
+```
+alice: deposit 100 ETH: member_transfer proved in ≈1.4 s (40192 B proof, verified locally in 17 ms), gas 3331703 (42180 B calldata), block 4, tx 0x…
+```
+
+On-chain: `transact(pipeline = member_transfer root, root, nullifiers[2], commitments[2], vPubIn = 100 ETH, vPubOut = 0, fee = 0, payout = 0, pqCiphertext (1,536 B), proof (40,192 B))` with `msg.value = 100 ETH`. `ZK_VERIFY` returns 31 slots: `identity_root, date, holder_tag`; the session's `ctx, C_t, E.x, E.y, tag, ct_commitment`; the DG1 envelope's `c_id0..5`; the transfer's `cid, root, N₀, N₁, C₀, C₁, v_in, v_out, fee, payout`; the note envelope's `c_note0..5`. The pool checks the identity root is in the identity tree's ring, the date, every transfer field against the calldata, `ctx = H("emit-v2/ctx", cid, N₀, N₁, C₀, C₁)`, `ct_commitment = H(pqCiphertext)`, the note root in its ring, the nullifiers unspent and distinct, and `msg.value = vPubIn`. It marks both nullifiers spent, appends both commitments (note tree leaves 0 and 1, a root per insert in the ring) and emits `NewNullifier` ×2, `NewCommitment(commitment, leafIndex)` ×2 and `Envelope(cT, e, tag, ct, pqCiphertext, cNote, cId)`. The first deposit pays for the note tree's first writes (3.33M gas; later transactions ≈2.78-2.81M). An observer sees 100 ETH enter from Alice's EOA (`vPubIn` is public); who owns the result and how it's split between the two commitments are hidden.
+
+### 7. Alice pays Bob 60 (the handshake)
+
+```sh
+zkpool -w alice transfer --to bob --amount 60
+```
+
+The first transfer to a contact is the handshake: the session encapsulates to Bob's Grumpkin and ML-KEM keys, the DG1 envelope seals Alice's MRZ and the note envelope output 0's opening (value and randomness) under the new chain key. Inputs: her 100 note and a dummy; outputs: 60 to Bob's `pk`, 39.99 change to herself; fee 0.01 (the default).
+
+```
+alice: transfer 60 ETH to bob (handshake): member_transfer proved in ≈1.4 s (40192 B proof, verified locally in 17 ms), gas 2783306 (42180 B calldata), block 5, tx 0x…
+```
+
+On-chain: `transact` as in step 6 with `vPubIn = vPubOut = 0`, `fee = 0.01 ETH`, paid from the shielded value to `block.coinbase`. Note tree leaves 2 and 3; `NewNullifier` ×2, `NewCommitment` ×2, `Envelope`. An observer sees a member transfer with a 0.01 ETH fee from Alice's EOA and nothing of its receiver or amount. Bob's `Receiver::scan` first looks each Envelope's `C_t` up in the chain-key windows he holds, then tests its tag against his bundle's keys; this one matches the tag, so he derives the channel's first chain key from `E` and the lattice ciphertext (his ML-KEM key), opens `c_note` (checking it opens `C₀` for his `pk`) and `c_id` (Alice's MRZ), and keeps the note.
+
+### 8. Alice pays Bob 5 (the ratchet, on the full passport)
+
+```sh
+zkpool -w alice transfer --to bob --amount 5 --full-passport
+```
+
+The second transfer to Bob advances the channel's ratchet (the session encapsulates to a throwaway key: every transfer has one shape). The demo forces `--full-passport` here to compare the two pipelines: this transfer proves `identity_transfer` (eid's DSC, SOD and document steps again, scope 0) instead of membership. Inputs: the 39.99 change; outputs: 5 to Bob, 34.98 to herself.
+
+```
+alice: transfer 5 ETH to bob (ratchet index 1): identity_transfer proved in ≈2.4 s (40192 B proof, verified locally in 18 ms), gas 2782099 (42180 B calldata), block 6, tx 0x…
+```
+
+On-chain: `transact` with `pipeline = identity_transfer root`. `ZK_VERIFY` returns 32 slots: `registry_root, date, scope, nullifier` (scope 0, so the document nullifier is 0 and links nothing), then the same 28 as `member_transfer` after its first three. The pool checks the registry root instead of the identity root and `scope = 0`; the rest as before. Note tree leaves 4 and 5; the same events. An observer can tell this one proved the passport. Bob finds it by `C_t` in the window of chain keys he holds for the channel.
+
+Bob's listener, meanwhile:
+
+```
+bob: listening to 0x5FbDB2315678afecb367f032d93F642f64180aa3 (block 3)
+bob: received 60 ETH (handshake, block 5) from P<USAERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<L898902C36USA7408122F3404159ZE184226B<<<<<16
+bob: received 5 ETH (ratchet index 1, block 6) from P<USAERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<L898902C36USA7408122F3404159ZE184226B<<<<<16
+bob: stopped; 2 note(s) received, balance 65 ETH
+```
+
+### 9. Bob syncs and lists his notes
+
+```sh
+zkpool -w bob sync
+zkpool -w bob notes
+```
+
+`sync` replays the pool's logs from where the wallet stopped (`NewCommitment`, `NewNullifier`, `IdentityRegistered`, `Envelope`): the note and identity trees, spent notes, and every Envelope through `Receiver::scan`. The listener already took both notes, so there is nothing new.
+
+```
+bob: synced to block 6 (6 leaves), 0 note(s) received, balance 65 ETH
+bob: 2 note(s), 65 ETH
+  leaf    2            60 ETH  0x…  from P<USAERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<L898902C36USA7408122F3404159ZE184226B<<<<<16
+  leaf    4             5 ETH  0x…  from P<USAERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<L898902C36USA7408122F3404159ZE184226B<<<<<16
+```
+
+On-chain: nothing (reads only).
+
+### 10. Bob splits, merges and withdraws
+
+```sh
+zkpool -w bob split --amounts 10,49.99
+zkpool -w bob merge
+zkpool -w bob withdraw --amount 30 --to 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
+```
+
+Three `member_transfer` transactions to himself, each on a throwaway channel with the default 0.01 fee: the 60 note into 10 + 49.99; the two smallest (5 and 10) into 14.99; 30 out of the 49.99 note to his EOA (`vPubOut = 30 ETH`, `payout` = his address), 19.98 back to himself.
+
+```
+bob: split 1 -> 2 (10 + 49.99 ETH): member_transfer proved in ≈1.4 s (40192 B proof, verified locally in 16 ms), gas 2789038 (42180 B calldata), block 7, tx 0x…
+bob: merge 2 -> 1 (14.99 ETH): member_transfer proved in ≈1.4 s (40192 B proof, verified locally in 16 ms), gas 2796424 (42180 B calldata), block 8, tx 0x…
+bob: withdraw 30 ETH to 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC: member_transfer proved in ≈1.4 s (40192 B proof, verified locally in 16 ms), gas 2804859 (42180 B calldata), block 9, tx 0x…
+  0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC: 999999999.99655… -> 1000000029.99569… ETH
+```
+
+On-chain: `transact` each, as in step 7 (note tree leaves 6-11, `NewNullifier` ×2, `NewCommitment` ×2, `Envelope` each). The withdrawal pays 30 ETH from the pool to `payout`, which an observer sees, with the fee; a split, a merge and a payment to someone else look the same on-chain.
+
+### 11. Balances
+
+```sh
+zkpool -w alice balance
+zkpool -w bob balance
+zkpool -w bob notes
+cast balance $ZKPOOL_POOL --rpc-url $ZKPOOL_RPC
+```
+
+```
+alice: shielded 34.98 ETH in 1 note(s); EOA 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 999999899.99333… ETH
+bob: shielded 34.97 ETH in 2 note(s); EOA 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC 1000000029.99569… ETH
+bob: 2 note(s), 34.97 ETH
+  leaf    8         14.99 ETH  0x…
+  leaf   10         19.98 ETH  0x…
+pool contract holds 69.95 ETH (= 34.98 + 34.97 shielded)
+```
+
+Alice: 100 − 60 − 5 − 2 × 0.01. Bob: 65 − 30 − 3 × 0.01. The pool holds exactly the shielded total; the five fees went to the block producers.
+
+### Summary
+
+| step | call | pipeline | prove | gas | calldata | events | state written |
+|---|---|---|---:|---:|---:|---|---|
+| Alice registers | `register` | `identity_register` | ≈1.8 s | 2,591,853 | 40,260 B | `IdentityRegistered` | `documentRegistered`, identity leaf 0 (first insert: filled subtrees), identity root ring |
+| Bob registers | `register` | `identity_register` | ≈3.8 s | 2,007,482 | 40,260 B | `IdentityRegistered` | `documentRegistered`, identity leaf 1, identity root ring |
+| Alice deposits 100 | `transact` | `member_transfer` | ≈1.4 s | 3,331,703 | 42,180 B | `NewNullifier` ×2, `NewCommitment` ×2, `Envelope` | 2 nullifiers, note leaves 0-1 (first insert: filled subtrees), note root ring; +100 ETH to the pool |
+| Alice → Bob 60 (handshake) | `transact` | `member_transfer` | ≈1.4 s | 2,783,306 | 42,180 B | the same | 2 nullifiers, note leaves 2-3, root ring; fee to coinbase |
+| Alice → Bob 5 (ratchet) | `transact` | `identity_transfer` | ≈2.4 s | 2,782,099 | 42,180 B | the same | 2 nullifiers, note leaves 4-5, root ring; fee to coinbase |
+| Bob splits | `transact` | `member_transfer` | ≈1.4 s | 2,789,038 | 42,180 B | the same | 2 nullifiers, note leaves 6-7, root ring; fee to coinbase |
+| Bob merges | `transact` | `member_transfer` | ≈1.4 s | 2,796,424 | 42,180 B | the same | 2 nullifiers, note leaves 8-9, root ring; fee to coinbase |
+| Bob withdraws 30 | `transact` | `member_transfer` | ≈1.4 s | 2,804,859 | 42,180 B | the same | 2 nullifiers, note leaves 10-11, root ring; fee to coinbase, 30 ETH to payout |
 
 ## The precompiles
 
@@ -232,3 +439,4 @@ Proving the passport on every transfer costs eid's DSC, SOD and document steps e
 - The wallet keeps the whole tree and recomputes paths in O(n) per spend; fine for a devnet.
 - A failed ratchet transaction leaves its chain index consumed (the receiver's window of 8 absorbs it); a failed handshake restarts the contact's channel.
 - The Foundry tests mock both precompiles; the real hash and verifier are exercised by the devnet test and the demo.
+- No CI: the tests, the devnet test and the demo are run by hand.
