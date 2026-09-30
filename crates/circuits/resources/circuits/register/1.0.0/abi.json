@@ -1,0 +1,117 @@
+{
+  "abi_version": 1,
+  "error_types": {
+    "11908774887677672244": {
+      "error_kind": "string",
+      "string": "dates before 1970 are not supported"
+    },
+    "12102531148006534649": {
+      "error_kind": "string",
+      "string": "the registration outlives the passport"
+    },
+    "13225890357864630838": {
+      "error_kind": "string",
+      "string": "bytes past the DER length must be zero"
+    },
+    "14990209321349310352": {
+      "error_kind": "string",
+      "string": "attempt to add with overflow"
+    },
+    "17376936072331336463": {
+      "error_kind": "string",
+      "string": "DER element exceeds its container"
+    },
+    "17780533743720425186": {
+      "error_kind": "string",
+      "string": "MRZ date digit expected"
+    },
+    "1976428911386114426": {
+      "error_kind": "string",
+      "string": "invalid date"
+    },
+    "1998584279744703196": {
+      "error_kind": "string",
+      "string": "attempt to subtract with overflow"
+    },
+    "2722252718304916276": {
+      "error_kind": "string",
+      "string": "unsupported DER length form"
+    },
+    "2779601333998127949": {
+      "error_kind": "string",
+      "string": "unexpected DER tag"
+    },
+    "361444214588792908": {
+      "error_kind": "string",
+      "string": "attempt to multiply with overflow"
+    },
+    "4120765752902525854": {
+      "error_kind": "string",
+      "string": "DG1 must use a short length"
+    },
+    "5625443838988767373": {
+      "error_kind": "string",
+      "string": "DG1 must hold the MRZ (5F1F)"
+    },
+    "7005289962348203461": {
+      "error_kind": "string",
+      "string": "non-minimal DER length"
+    },
+    "9130239768594611603": {
+      "error_kind": "string",
+      "string": "MRZ length does not match DG1"
+    },
+    "9317569959531272136": {
+      "error_kind": "string",
+      "string": "MRZ must be TD1, TD2 or TD3"
+    }
+  },
+  "parameters": [
+    {
+      "name": "payload_salt",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "dg1",
+      "type": {
+        "kind": "array",
+        "length": 95,
+        "type": {
+          "kind": "integer",
+          "sign": "unsigned",
+          "width": 8
+        }
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "sk",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "expiry",
+      "type": {
+        "kind": "integer",
+        "sign": "unsigned",
+        "width": 64
+      },
+      "visibility": "private"
+    }
+  ],
+  "return_type": {
+    "abi_type": {
+      "kind": "array",
+      "length": 3,
+      "type": {
+        "kind": "field"
+      }
+    },
+    "visibility": "databus"
+  }
+}

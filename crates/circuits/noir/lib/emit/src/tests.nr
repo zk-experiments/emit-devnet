@@ -43,3 +43,21 @@ fn rejects_wrong_root() {
 fn rejects_wrong_fee() {
     let _ = transfer(CID, ROOT, 0, 0, FEE + 1, PAYOUT, INS, OUTS, NOTE_SALT);
 }
+
+#[test]
+fn transfer_holder_publishes_the_tag_of_its_inputs_key() {
+    let mut ins = INS;
+    ins[1].sk = ins[0].sk;
+    let t = crate::transfer(CID, ROOT, 0, 0, FEE, PAYOUT, ins, OUTS, NOTE_SALT).flatten();
+    let r = crate::transfer_holder(CID, ROOT, 0, 0, FEE, PAYOUT, ins, OUTS, NOTE_SALT);
+    assert_eq(r[0], t[0]);
+    assert_eq(r[1], crate::holder_tag(ins[0].sk, t[0]));
+    for i in 1..12 {
+        assert_eq(r[i + 1], t[i]);
+    }
+}
+
+#[test(should_fail_with = "the inputs have two holders")]
+fn transfer_holder_rejects_two_keys() {
+    let _ = crate::transfer_holder(CID, ROOT, 0, 0, FEE, PAYOUT, INS, OUTS, NOTE_SALT);
+}

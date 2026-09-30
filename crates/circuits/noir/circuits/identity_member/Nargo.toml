@@ -1,0 +1,9 @@
+[package]
+name = "identity_member"
+type = "bin"
+authors = ["zk-experiments"]
+compiler_version = ">=1.0.0"
+
+[dependencies]
+identity_cache = { path = "../../lib/identity_cache" }
+emit = { path = "../../lib/emit" }

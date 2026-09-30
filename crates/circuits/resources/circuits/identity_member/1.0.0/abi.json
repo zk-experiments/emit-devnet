@@ -1,0 +1,104 @@
+{
+  "abi_version": 1,
+  "error_types": {
+    "15835548349546956319": {
+      "error_kind": "string",
+      "string": "Field failed to decompose into specified 32 limbs"
+    },
+    "3523897873886550250": {
+      "error_kind": "string",
+      "string": "not a registered identity"
+    },
+    "3871337252479431107": {
+      "error_kind": "string",
+      "string": "the registration has expired"
+    }
+  },
+  "parameters": [
+    {
+      "name": "identity_root",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "date",
+      "type": {
+        "kind": "integer",
+        "sign": "unsigned",
+        "width": 64
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "sk",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "payload",
+      "type": {
+        "kind": "array",
+        "length": 6,
+        "type": {
+          "kind": "field"
+        }
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "payload_salt",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "expiry",
+      "type": {
+        "kind": "integer",
+        "sign": "unsigned",
+        "width": 64
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "index",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "path",
+      "type": {
+        "kind": "array",
+        "length": 32,
+        "type": {
+          "kind": "field"
+        }
+      },
+      "visibility": "private"
+    },
+    {
+      "name": "ctx",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    }
+  ],
+  "return_type": {
+    "abi_type": {
+      "kind": "array",
+      "length": 4,
+      "type": {
+        "kind": "field"
+      }
+    },
+    "visibility": "databus"
+  }
+}

@@ -1,10 +1,13 @@
-//! The combining registry of the devnet: the emit layer's transfer app, frozen here as
-//! `emit-devnet@0.1.0` (family `emit/transfer`, bytecode bundled), eid-circuits' identity layer
+//! The combining registry of the devnet: this repository's layers, frozen here as
+//! `emit-devnet@0.2.0` (bytecode bundled): the emit layer's transfer apps (`emit/transfer`, and
+//! `emit/transfer_holder` bound to a registered holder) and the identity cache
+//! (`identity_cache/register`, `identity_cache/member`); eid-circuits' identity layer
 //! (`eid/dsc`, `eid/sod`, `eid/document`) and zk-encryption's channel layer (`channel/session`,
 //! `channel/envelope`, `channel/note_envelope`) wrapped from their crates, and the pipelines
 //! declared in `circuits/manifest.toml`:
 //!
-//! - `circuits::pipelines::{identity_transfer, transfer_only}`: `ROOT`, `PIPELINE`, a typed
+//! - `circuits::pipelines::{identity_transfer, transfer_only, identity_register, member_transfer}`:
+//!   `ROOT`, `PIPELINE`, a typed
 //!   `Outputs`, `fold(&pool)` and `verify(&proof)`;
 //! - `circuits::{DEPLOYMENT, DEPLOYMENT_ROOT, FAMILIES}`;
 //! - [`pins`]: `pins.toml` (every version, catalog and root the devnet trusts) and its startup check;
@@ -22,11 +25,16 @@ pub mod circuits {
     include!(concat!(env!("OUT_DIR"), "/circuits.rs"));
 }
 
-use circuits::pipelines::{identity_transfer, transfer_only};
+use circuits::pipelines::{identity_register, identity_transfer, member_transfer, transfer_only};
 
 /// The pipelines a chain accepts, by root.
 pub fn pipeline(root: &[u8; 32]) -> Option<&'static noir_zk_core::PipelineEntry> {
-    [&*identity_transfer::PIPELINE, &*transfer_only::PIPELINE]
+    [
+        &*identity_transfer::PIPELINE,
+        &*transfer_only::PIPELINE,
+        &*identity_register::PIPELINE,
+        &*member_transfer::PIPELINE,
+    ]
         .into_iter()
         .find(|p| p.root == *root)
 }
@@ -86,7 +94,28 @@ mod tests {
         );
         assert_eq!(identity_transfer::PIPELINE.slots.len(), 32);
         assert_eq!(names(&transfer_only::PIPELINE).len(), 3);
-        assert_eq!(circuits::DEPLOYMENT.roots.len(), 2);
+        assert_eq!(
+            names(&identity_register::PIPELINE),
+            [
+                "eid-circuits/dsc",
+                "eid-circuits/sod",
+                "eid-circuits/document",
+                "emit-devnet/register"
+            ]
+        );
+        assert_eq!(identity_register::PIPELINE.slots.len(), 6);
+        assert_eq!(
+            names(&member_transfer::PIPELINE),
+            [
+                "emit-devnet/member",
+                "zk-encryption/session",
+                "zk-encryption/envelope",
+                "emit-devnet/transfer_holder",
+                "zk-encryption/note_envelope"
+            ]
+        );
+        assert_eq!(member_transfer::PIPELINE.slots.len(), 31);
+        assert_eq!(circuits::DEPLOYMENT.roots.len(), 4);
         assert!(pipeline(&identity_transfer::ROOT).is_some());
         assert!(pipeline(&[0; 32]).is_none());
     }

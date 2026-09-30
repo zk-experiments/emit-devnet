@@ -1,2 +1,9 @@
 [workspace]
-members = ["lib/emit", "circuits/transfer"]
+members = [
+    "lib/emit",
+    "lib/identity_cache",
+    "circuits/transfer",
+    "circuits/transfer_holder",
+    "circuits/register",
+    "circuits/identity_member",
+]

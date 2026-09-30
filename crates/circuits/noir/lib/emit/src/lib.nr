@@ -17,6 +17,7 @@ pub global NULLIFIER: Field = 0x656d69742d76322f6e756c6c6966696572;
 pub global COMMITMENT: Field = 0x656d69742d76322f636f6d6d69746d656e74;
 pub global RHO: Field = 0x656d69742d76322f72686f;
 pub global CTX: Field = 0x656d69742d76322f637478;
+pub global HOLDER: Field = 0x656d69742d76322f686f6c646572;
 
 pub global TREE_DEPTH: u32 = 32;
 /// Values are single fields range-checked to 128 bits.
@@ -25,8 +26,10 @@ pub global VALUE_BITS: u32 = 128;
 /// Transfer's databus output (`Transfer::flatten`): 11 public fields, then
 /// the note payload's commitment (the link to the note envelope app).
 pub global TRANSFER_FIELDS: u32 = 12;
+/// `transfer_holder`'s databus output: ctx, the holder tag, then as `Transfer::flatten` from cid.
+pub global TRANSFER_HOLDER_FIELDS: u32 = 13;
 
-fn h<let N: u32>(x: [Field; N]) -> Field {
+pub fn h<let N: u32>(x: [Field; N]) -> Field {
     Poseidon2::hash(x, N)
 }
 
@@ -175,4 +178,36 @@ pub fn transfer(
         payout_recipient,
         note_commitment: commit(note_salt, [outs[0].value, rhos[0], outs[0].r, 0, 0, 0]),
     }
+}
+
+/// The holder tag `H(HOLDER, sk, ctx)`: proves, without revealing `sk`, that the spender is the
+/// identity cache's registered holder (`identity_member` publishes the same tag; the kernel binds
+/// the two). ctx is unique per transfer, so tags don't link transfers.
+pub fn holder_tag(sk: Field, ctx: Field) -> Field {
+    h([HOLDER, sk, ctx])
+}
+
+/// The transfer of the `member_transfer` pipeline: `transfer`, with both inputs (dummies too) held
+/// by one key, whose holder tag in this transfer's ctx is the record's second field:
+/// `[ctx, holder_tag, cid, root, N0, N1, C0, C1, v_in, v_out, fee, payout_recipient, note_commitment]`.
+pub fn transfer_holder(
+    cid: Field,
+    root: Field,
+    v_in: Field,
+    v_out: Field,
+    fee: Field,
+    payout_recipient: Field,
+    ins: [InNote; 2],
+    outs: [OutNote; 2],
+    note_salt: Field,
+) -> [Field; TRANSFER_HOLDER_FIELDS] {
+    assert(ins[0].sk == ins[1].sk, "the inputs have two holders");
+    let t = transfer(cid, root, v_in, v_out, fee, payout_recipient, ins, outs, note_salt).flatten();
+    let mut out: [Field; TRANSFER_HOLDER_FIELDS] = [0; TRANSFER_HOLDER_FIELDS];
+    out[0] = t[0];
+    out[1] = holder_tag(ins[0].sk, t[0]);
+    for i in 1..TRANSFER_FIELDS {
+        out[i + 1] = t[i];
+    }
+    out
 }

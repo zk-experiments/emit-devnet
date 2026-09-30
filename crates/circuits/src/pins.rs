@@ -32,7 +32,8 @@ pub struct NoirZk {
 #[derive(Clone, Debug, Deserialize)]
 pub struct Emit {
     pub library: String,
-    pub transfer_family_root: String,
+    /// Each family of this repository's layers, by name.
+    pub family_roots: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -63,6 +64,8 @@ pub struct Deployment {
     pub root: String,
     pub identity_transfer: PipelinePin,
     pub transfer_only: PipelinePin,
+    pub identity_register: PipelinePin,
+    pub member_transfer: PipelinePin,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -157,12 +160,22 @@ impl Pins {
             &mut r,
         )?;
 
-        // The emit layer (this crate).
-        let transfer = family("emit-devnet", "transfer").ok_or("no emit/transfer family")?;
+        // This crate's layers: every family pinned, and nothing else.
+        let ours: Vec<_> = circuits::FAMILIES
+            .iter()
+            .filter(|f| f.id.library == "emit-devnet")
+            .collect();
         check(
-            &format!("emit layer {} transfer family root", self.emit.library),
+            &format!(
+                "emit-devnet layers {} family roots ({})",
+                self.emit.library,
+                ours.iter().map(|f| f.id.family).collect::<Vec<_>>().join(", ")
+            ),
             lib(circuits::LIBRARY) == self.emit.library
-                && crate::hex32(&transfer.root) == self.emit.transfer_family_root,
+                && ours.len() == self.emit.family_roots.len()
+                && ours.iter().all(|f| {
+                    self.emit.family_roots.get(f.id.family) == Some(&crate::hex32(&f.root))
+                }),
             &mut r,
         )?;
 
@@ -196,6 +209,18 @@ impl Pins {
                 &self.deployment.transfer_only,
                 pipelines::transfer_only::ROOT,
                 pipelines::transfer_only::PIPELINE.len(),
+            ),
+            (
+                "identity_register",
+                &self.deployment.identity_register,
+                pipelines::identity_register::ROOT,
+                pipelines::identity_register::PIPELINE.len(),
+            ),
+            (
+                "member_transfer",
+                &self.deployment.member_transfer,
+                pipelines::member_transfer::ROOT,
+                pipelines::member_transfer::PIPELINE.len(),
             ),
         ] {
             check(
