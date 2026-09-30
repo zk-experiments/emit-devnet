@@ -169,7 +169,10 @@ impl Pins {
             &format!(
                 "emit-devnet layers {} family roots ({})",
                 self.emit.library,
-                ours.iter().map(|f| f.id.family).collect::<Vec<_>>().join(", ")
+                ours.iter()
+                    .map(|f| f.id.family)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             lib(circuits::LIBRARY) == self.emit.library
                 && ours.len() == self.emit.family_roots.len()

@@ -35,8 +35,8 @@ pub fn pipeline(root: &[u8; 32]) -> Option<&'static noir_zk_core::PipelineEntry>
         &*identity_register::PIPELINE,
         &*member_transfer::PIPELINE,
     ]
-        .into_iter()
-        .find(|p| p.root == *root)
+    .into_iter()
+    .find(|p| p.root == *root)
 }
 
 /// Verifies a folded proof of the pipeline with root `pipeline_root` under noir-zk's hiding key,
