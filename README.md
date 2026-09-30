@@ -6,39 +6,86 @@ Design: `emit-v2-transfer-mechanism.md` and `emit-private-transfer-design.md` (t
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    pins["pins.toml: versions, catalogs + SHA-256, registry root, deployment root"]
+    cdn[("CDNs: circuits.zk-eid.dev, circuits.zk-experiments.dev")]
+
+    subgraph circuits["crates/circuits: the combining registry"]
+        direction LR
+        eid["eid-circuits 0.8.0<br/>eid/dsc, eid/sod, eid/document"]
+        chan["zk-encryption 0.1.1<br/>session, envelope, note_envelope"]
+        own["emit-devnet@0.2.0 (own)<br/>transfer, transfer_holder,<br/>register, identity_member"]
+        pl["pipelines<br/>fold, verify, DEPLOYMENT_ROOT"]
+        eid --> pl
+        chan --> pl
+        own --> pl
+    end
+
+    subgraph cli["crates/cli: zkpool wallet (Alice, Bob)"]
+        direction LR
+        prove["prove: register / transfer<br/>one 40,192-byte proof"]
+        sync["sync / listen<br/>update trees, scan received notes"]
+        wallet[("wallet JSON<br/>keys, notes, trees")]
+        prove --> wallet
+        sync --> wallet
+    end
+
+    subgraph node["crates/node: emit-node (reth v2.6.0)"]
+        direction LR
+        rpc["JSON-RPC :8545 / :8546"]
+        evm["EVM + precompiles<br/>0x…0100 ZK_VERIFY<br/>0x…0101 POSEIDON2"]
+        rpc --> evm
+    end
+
+    subgraph contracts["contracts/"]
+        direction LR
+        pool["EmitV2Pool<br/>verify proof, check public fields,<br/>pay fee and withdrawals"]
+        imt["IMT: note tree"]
+        idt["IdentityTree"]
+        pool --> imt
+        pool --> idt
+    end
+
+    cdn -- "eid bytecode packs, SHA-256 checked" --> circuits
+    pins -. "checked at startup" .-> cli
+    pins -. "checked at startup" .-> node
+    circuits --> prove
+    circuits -- "verify(pipeline_root, proof)" --> evm
+    prove -- "register / transact" --> rpc
+    evm --> pool
+    pool -- "events" --> sync
 ```
-                        pins.toml (versions, catalogs + SHA-256, registry tag + root, deployment root)
-                                 │ compiled in, checked at startup (catalogs fetched from the CDNs)
-          ┌──────────────────────┴───────────────────────────┐
-          ▼                                                  ▼
- crates/cli: zkpool (Alice, Bob)                    crates/node: emit-node (reth v2.6.0, --dev)
- ├ wallet JSON: sk, Receiver, Senders, notes, tree,  ├ EVM = Ethereum (Prague) + two precompiles
- │   registration, identity tree                     │   0x…0100 ZK_VERIFY(pipeline_root ‖ proof)
- ├ identity register → fold(identity_register)       │       → uint256[35] public fields, or revert
- │   eid dsc → sod → document → register              │   0x…0101 POSEIDON2(x₁..xₙ) → H (Noir's sponge)
- ├ Transfer::build → fold(member_transfer)           └ JSON-RPC http :8545, ws :8546
- │   identity_member → session → DG1 envelope →
- │   transfer_holder → note envelope
- │   (no live registration or --full-passport:
- │   fold(identity_transfer): eid dsc → sod →
- │   document → session → DG1 envelope → transfer →
- │   note envelope) → one 40,192-byte proof
- ├ register / transact from the user's EOA ─────────► contracts/: EmitV2Pool (+ IMT, depth 32, 32-root ring;
- └ sync / listen: NewCommitment, NewNullifier,        │   IdentityTree, the same, for registrations)
-   Envelope, IdentityRegistered logs → trees,         ├ ZK_VERIFY, then every public field vs calldata,
-   spent notes, registration,                         │   ctx, H(pqCiphertext), roots, nullifiers,
-   Receiver::scan → received notes + sender's MRZ     │   registry or identity root, date, scope, msg.value
-                                                      └ fee → block.coinbase, vPubOut → payout; events
- crates/circuits: the combining registry
- ├ this repo's layers, frozen as emit-devnet@0.2.0, bytecode bundled: emit (transfer, transfer_holder),
- │   identity_cache (register, member)
- ├ identity layer: eid-circuits 0.8.0 (eid/dsc, eid/sod, eid/document) wrapped
- ├ channel layer: zk-encryption 0.1.0 (channel/session, envelope, note_envelope) wrapped
- ├ pipelines identity_transfer (7 apps, 32 slots), transfer_only (3 apps), identity_register (4 apps, 6 slots),
- │   member_transfer (5 apps, 31 slots) → fold, verify, Outputs, DEPLOYMENT_ROOT
- └ setup: eid DSC/SOD/document bytecode from the packs on circuits.zk-eid.dev (catalog SHA-256 pinned,
-   pack SHA-256 from the catalog, every file against eid's registry pins)
+
+- `ZK_VERIFY(pipeline_root ‖ proof)` returns the proof's `uint256[35]` public fields or reverts. `POSEIDON2(x₁..xₙ)` is Noir's sponge.
+- `EmitV2Pool` calls `ZK_VERIFY`, then checks every public field against the calldata: ctx, `H(pqCiphertext)`, roots, nullifiers, the registry or identity root, date, scope and `msg.value`. It pays the fee to `block.coinbase` and `vPubOut` to the payout address.
+- Both trees are `IMT`s of depth 32 with a ring of the last 32 roots.
+- The wallet follows `NewCommitment`, `NewNullifier`, `Envelope` and `IdentityRegistered`. `Receiver::scan` recovers the notes sent to it and the sender's MRZ.
+- The wallet JSON holds `sk`, the Receiver and Senders, the notes, the note tree, the registration and the identity tree.
+
+The pipelines, each folded into one proof by noir-zk's generic kernels:
+
+```mermaid
+flowchart LR
+    subgraph only["transfer_only (3 apps)"]
+        direction LR
+        t1["session"] --> t2["transfer"] --> t3["note envelope"]
+    end
+    subgraph full["identity_transfer (7 apps, 32 slots): no live registration or --full-passport"]
+        direction LR
+        f1["eid/dsc"] --> f2["eid/sod"] --> f3["eid/document"] --> f4["session"] --> f5["DG1 envelope"] --> f6["transfer"] --> f7["note envelope"]
+    end
+    subgraph mem["member_transfer (5 apps, 31 slots): after registration"]
+        direction LR
+        m1["identity_member"] --> m2["session"] --> m3["DG1 envelope"] --> m4["transfer_holder"] --> m5["note envelope"]
+    end
+    subgraph reg["identity_register (4 apps, 6 slots): once per passport"]
+        direction LR
+        r1["eid/dsc"] --> r2["eid/sod"] --> r3["eid/document"] --> r4["register"]
+    end
 ```
+
+Setup: the eid DSC/SOD/document bytecode comes from the packs on circuits.zk-eid.dev (catalog SHA-256 pinned, pack SHA-256 from the catalog, every file checked against eid's registry pins); the channel layer's release is v0.1.1, whose frozen library identity is still `zk-encryption@0.1.0`.
 
 ```
 crates/circuits/   build.rs (codegen), circuits/manifest.toml (own and wrapped families, pipelines),
