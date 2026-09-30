@@ -11,9 +11,10 @@ fn main(
     payload: [Field; 6],
     payload_salt: Field,
     expiry: u64,
+    blinding: Field,
     index: Field,
     path: [Field; TREE_DEPTH],
     ctx: Field,
 ) -> return_data [Field; MEMBER_FIELDS] {
-    member(identity_root, date, sk, payload, payload_salt, expiry, index, path, ctx)
+    member(identity_root, date, sk, payload, payload_salt, expiry, blinding, index, path, ctx)
 }

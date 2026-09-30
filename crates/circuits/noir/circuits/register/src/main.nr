@@ -9,6 +9,7 @@ fn main(
     dg1: [u8; DG1_MAX],
     sk: Field,
     expiry: u64,
+    blinding: Field,
 ) -> return_data [Field; REGISTER_FIELDS] {
-    register(payload_salt, dg1, sk, expiry)
+    register(payload_salt, dg1, sk, expiry, blinding)
 }

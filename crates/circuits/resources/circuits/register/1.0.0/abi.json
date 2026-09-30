@@ -102,6 +102,13 @@
         "width": 64
       },
       "visibility": "private"
+    },
+    {
+      "name": "blinding",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
     }
   ],
   "return_type": {

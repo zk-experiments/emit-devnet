@@ -66,6 +66,13 @@
       "visibility": "private"
     },
     {
+      "name": "blinding",
+      "type": {
+        "kind": "field"
+      },
+      "visibility": "private"
+    },
+    {
       "name": "index",
       "type": {
         "kind": "field"

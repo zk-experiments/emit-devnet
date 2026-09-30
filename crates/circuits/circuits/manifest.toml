@@ -31,26 +31,6 @@ vk_sha256 = "3fd90cdf507e1b698f0cfb7d3645d79d0bdd8e40ae5211cb29d3bbd186e8c4c6"
 vk_hash = "0x28e182ade77c7d2f1198c9ff2c838d38c646ae9ab53c0a334ecf4fffd72e92a7"
 
 [[circuit]]
-label = "identity_member"
-version = "1.0.0"
-system = "chonk"
-role = "app"
-status = "active"
-bytecode_sha256 = "7ce7609a01fbf339351cc27d603e411d147dc0df1de995be34a29a5a919d9919"
-vk_sha256 = "a8fbafed0097913af96b62c2f3ffc88d9eb9945ceb04c59d7245a48146effc5c"
-vk_hash = "0x13c258d480cb78f2c9ab991104f7d6403f4ab3a2225a0234cbae163b0fdeac2b"
-
-[[circuit]]
-label = "register"
-version = "1.0.0"
-system = "chonk"
-role = "app"
-status = "active"
-bytecode_sha256 = "e732563612640eec949f654e6a3573705c0ff697ac6435c3b5696180c31e245c"
-vk_sha256 = "71b2edec062984c726d1712bffb8aa0d7cb1d71d4bf7e581584e40b3464a1aec"
-vk_hash = "0x200da9bf54400513a0ad0dd32cddfb4cabda72646515a4124d232b265e82ab1c"
-
-[[circuit]]
 label = "transfer_holder"
 version = "1.0.0"
 system = "chonk"
@@ -59,6 +39,26 @@ status = "active"
 bytecode_sha256 = "37ff7ef295bd1ddab5731127f09113bd9c2be3e8523d7b12069ff6e3f24d21e9"
 vk_sha256 = "e4b6d37382a27efc2a52bb348ea537240b0aedb3b4c500682343572c5b46b8a2"
 vk_hash = "0x1d5a4ffa9c5ddfb4cb5689b940dec9f2660afc83c04b89b77fedf22776e01dd1"
+
+[[circuit]]
+label = "identity_member"
+version = "1.0.0"
+system = "chonk"
+role = "app"
+status = "active"
+bytecode_sha256 = "4cdcaaf8cee2fe4fee5022c4173dc12edbe51dd1d465cd6f2bb324a4836b562c"
+vk_sha256 = "950a5e69351edf074c4971b476a362ae33484b19d2d8f88968b7c52cc48d85b6"
+vk_hash = "0x1f3042d556da07f411b58b2e6403f836cfb0646f4753d98e070a4d4fe34d42ee"
+
+[[circuit]]
+label = "register"
+version = "1.0.0"
+system = "chonk"
+role = "app"
+status = "active"
+bytecode_sha256 = "f8c43422ba2630d59f020582de52ace3737ee976738fc6c3659ed9086bf8c071"
+vk_sha256 = "53cba21a90c059d8f4a7b0ca5ba5ce18cc0d1445d058acef04e53a6d2e0c93d7"
+vk_hash = "0x03fdab595abcf59e0e8c1667d45c664f53e0ba476300da2b865d0fd2d701904e"
 
 # The transfer of member_transfer: [ctx, holder_tag, cid, root, N0, N1, C0, C1, v_in, v_out, fee, payout_recipient,
 # note_commitment]; both inputs held by one key, bound to the session's ctx and to the holder tag identity_member

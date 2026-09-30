@@ -16,8 +16,8 @@ library = "emit-devnet@0.2.0"
 [emit.family_roots]
 transfer = "0x101453d93d091f5a72b40bbe6cc5b63d076638c8d301e87ef52c91f006f2c2b6"
 transfer_holder = "0x09d917b9f08bcc54c20a273541ee956f011b4e42308e90665cd78e5326040106"
-register = "0x15c06b7f80000624cd9456db6fae7ddefa38c988dcdb265bf035816c45482247"
-member = "0x180deeffbc118baf6fc3585c1d9a935c598a636f7d06604082550c99ec2cce09"
+register = "0x127dc46e65a5b323265eab1bd7eb35f5291cebbda35a56d35252c8af63846c41"
+member = "0x03f6f1875f4202a360af7b6cc88c52d3cee772896e97181466c8f9bcd15864be"
 
 [zk-encryption]
 # Release v0.1.1 (git tag, on noir-zk 0.3.0). Its frozen registry is still zk-encryption@0.1.0's
@@ -42,8 +42,8 @@ registry = "https://registry.zk-eid.dev/registry-20260928-1039/registry.json"
 registry_sha256 = "17a21c0f7997de83a7ebc9296b6a041dc84286e4805374037faac6dd8bcf4444"
 
 [deployment]
-root = "0x04f06ffbe5280984001601db1b671c259bfd4febd6d94223190768efda8abdb9"
+root = "0x0c395ade9bfd15f78d0d130432fa6201426883d08f51682966298a67f9375a87"
 identity_transfer = { root = "0x2e18854ae8917020c91f87b84e3b576391859af989581f05d8514669502d968b", length = 7 }
 transfer_only = { root = "0x1cd91016c533ab0d8d0a25a240adc78fe9032e6775bbba787f6aa15ce97014d4", length = 3 }
-identity_register = { root = "0x22c0bc718c6a58f348c250b3fda9bf9ae23db58d90f8c67e48d12bc375eb1066", length = 4 }
-member_transfer = { root = "0x26af3817f97c3f41ebd476c820fc5f6451c63e6b4229b7e088817196096d26cb", length = 5 }
+identity_register = { root = "0x12bb22def4df1c088cf5398a371ac04796fb5565680983ad9f44a9446c91c445", length = 4 }
+member_transfer = { root = "0x155461422196bdf5907cc4d76e85c132c3466f76bcaea457bc93377160e6c784", length = 5 }
