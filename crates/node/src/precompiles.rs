@@ -7,19 +7,21 @@
 //! (`deployment_root, pipeline_root, length`, then the pipeline's slots in order). A proof that
 //! doesn't verify reverts with the reason as bytes, after charging the gas.
 //! Gas: `ZK_VERIFY_GAS` flat (verification cost doesn't depend on the pipeline) plus
-//! `ZK_VERIFY_PER_WORD` per 32 bytes of input.
+//! `ZK_VERIFY_PER_WORD` per 32 bytes of input. The outcome is cached by the input's hash: a block
+//! runs each transaction twice (building it, then validating it), and verifies each proof once.
 //!
 //! `POSEIDON2` (0x…0101): input `n ≥ 1` 32-byte big-endian BN254 field elements (each < p);
 //! returns Noir's `Poseidon2::hash(inputs, n)` (the t = 4 sponge the circuits use, pso-poseidon's
 //! `hash_noir`). Gas: `POSEIDON2_BASE + POSEIDON2_PER_PERM · ⌈n / 3⌉` (one permutation per rate
 //! block).
 
-use alloy_primitives::{Bytes, address};
+use alloy_primitives::{B256, Bytes, address, keccak256};
 use ark_ff::{BigInteger, PrimeField};
 use reth_ethereum::evm::revm::precompile::{
     Precompile, PrecompileHalt, PrecompileId, PrecompileOutput, PrecompileResult, Precompiles,
 };
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use zk_encryption_circuits::wallet::Fr;
 use zk_encryption_circuits::wallet::poseidon::Poseidon;
 
@@ -50,21 +52,46 @@ fn zk_verify(input: &[u8], gas_limit: u64, reservoir: u64) -> PrecompileResult {
             reservoir,
         ))
     };
-    let Some((root, proof)) = input.split_first_chunk::<32>() else {
-        return fail("ZK_VERIFY: input shorter than a pipeline root".into());
-    };
-    match emit_devnet_circuits::verify(root, proof) {
-        Ok(fields) => {
-            let mut out = Vec::with_capacity(64 + 32 * fields.len());
-            out.extend(word(32));
-            out.extend(word(fields.len() as u64));
-            for f in &fields {
-                out.extend(be32(f));
-            }
-            Ok(PrecompileOutput::new(gas, out.into(), reservoir))
-        }
-        Err(e) => fail(format!("ZK_VERIFY: {e}")),
+    match verified(input) {
+        Ok(out) => Ok(PrecompileOutput::new(gas, out, reservoir)),
+        Err(why) => fail(why),
     }
+}
+
+/// Verification outcomes by input hash. The outcome is a function of the input alone, so a cached
+/// one is the one a fresh verification would give.
+const CACHE_ENTRIES: usize = 1024;
+
+fn verified(input: &[u8]) -> Result<Bytes, String> {
+    static CACHE: OnceLock<Mutex<HashMap<B256, Result<Bytes, String>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let key = keccak256(input);
+    if let Some(hit) = cache.lock().expect("cache").get(&key) {
+        return hit.clone();
+    }
+    let out = verify(input);
+    let mut c = cache.lock().expect("cache");
+    // ponytail: cleared whole when full; an LRU if a node ever sees more proofs than this in flight.
+    if c.len() >= CACHE_ENTRIES {
+        c.clear();
+    }
+    c.insert(key, out.clone());
+    out
+}
+
+fn verify(input: &[u8]) -> Result<Bytes, String> {
+    let (root, proof) = input
+        .split_first_chunk::<32>()
+        .ok_or("ZK_VERIFY: input shorter than a pipeline root")?;
+    let fields =
+        emit_devnet_circuits::verify(root, proof).map_err(|e| format!("ZK_VERIFY: {e}"))?;
+    let mut out = Vec::with_capacity(64 + 32 * fields.len());
+    out.extend(word(32));
+    out.extend(word(fields.len() as u64));
+    for f in &fields {
+        out.extend(be32(f));
+    }
+    Ok(out.into())
 }
 
 fn poseidon2(input: &[u8], gas_limit: u64, reservoir: u64) -> PrecompileResult {
@@ -153,9 +180,16 @@ mod tests {
 
     #[test]
     fn zk_verify_refuses_garbage() {
-        let root = emit_devnet_circuits::circuits::pipelines::identity_transfer::ROOT;
-        let out = zk_verify(&[root.as_slice(), &[0u8; 64]].concat(), 10_000_000, 0).expect("runs");
+        let root = emit_devnet_circuits::circuits::pipelines::member_transfer::ROOT;
+        let input = [root.as_slice(), &[0u8; 64]].concat();
+        let out = zk_verify(&input, 10_000_000, 0).expect("runs");
         assert_eq!(out.status, PrecompileStatus::Revert);
+        // Again, from the cache: the same outcome and gas.
+        let again = zk_verify(&input, 10_000_000, 0).expect("runs");
+        assert_eq!(
+            (again.status, again.gas_used, again.bytes),
+            (out.status, out.gas_used, out.bytes)
+        );
         assert!(
             zk_verify(&[0u8; 96], 1, 0).expect("halts").status.is_halt(),
             "out of gas"
