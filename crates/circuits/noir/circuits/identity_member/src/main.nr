@@ -16,5 +16,16 @@ fn main(
     path: [Field; TREE_DEPTH],
     ctx: Field,
 ) -> return_data [Field; MEMBER_FIELDS] {
-    member(identity_root, date, sk, payload, payload_salt, expiry, blinding, index, path, ctx)
+    member(
+        identity_root,
+        date,
+        sk,
+        payload,
+        payload_salt,
+        expiry,
+        blinding,
+        index,
+        path,
+        ctx,
+    )
 }

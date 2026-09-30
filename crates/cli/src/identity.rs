@@ -29,7 +29,7 @@ impl Registration {
         self.blinding.as_deref().map(Fr::from_hex).ok_or_else(|| {
             eyre::eyre!(
                 "the stored registration (leaf {}) has no blinding: it predates the blinded \
-                 identity leaf; register again with `identity register --force` (or use --full-passport)",
+                 identity leaf; register again with `identity register --force`",
                 self.leaf
             )
         })
@@ -121,8 +121,11 @@ mod tests {
             .dg1;
         let l = leaf(Fr::from(7u64), &dg1, 2_000_000_000, Fr::from(5u64));
         assert_ne!(l, leaf(Fr::from(7u64), &dg1, 2_000_000_000, Fr::from(6u64)));
-        let tree = Tree::from_leaves(vec![Fr::from(1u64), l, Fr::from(3u64)]);
-        assert_eq!(tree.path(1).root(l), tree.root());
+        let mut tree = Tree::default();
+        tree.append(Fr::from(1u64), false);
+        tree.append(l, true);
+        tree.append(Fr::from(3u64), false);
+        assert_eq!(tree.path(1).expect("watched").root(l), tree.root());
     }
 
     /// A registration stored before the leaf was blinded still loads, and refuses to prove.
@@ -145,17 +148,19 @@ mod tests {
         let doc = crate::document::by_name("us_rsa4096_rsa2048")?;
         let (date, expiry) = (1_790_467_200, 1_790_812_799);
         let blinding = Fr::from(0x2bd1u64);
-        let itree = Tree::from_leaves(vec![leaf(registered, &doc.dg1, expiry, blinding)]);
+        let mut itree = Tree::default();
+        itree.append(leaf(registered, &doc.dg1, expiry, blinding), true);
+        let min = crate::emit::MIN_NOTE_VALUE;
         let cid = Fr::from(3607u64);
         let t = Transfer::build(
             cid,
             Tree::default().root(),
             [InNote::dummy(spender), InNote::dummy(spender)],
             [
-                OutNote::to(Emit::pk(spender), 5),
+                OutNote::to(Emit::pk(spender), min),
                 OutNote::to(Emit::pk(spender), 0),
             ],
-            5,
+            min,
             0,
             0,
             Fr::from(0u64),
@@ -171,7 +176,7 @@ mod tests {
             salt,
             expiry,
             blinding,
-            &itree.path(0),
+            &itree.path(0).expect("watched"),
             t.ctx,
         );
         let emit = emit_devnet_circuits::emit_artifacts();

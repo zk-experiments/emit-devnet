@@ -19,13 +19,12 @@ contract IdentityTree is IMT {
     }
 }
 
-/// @notice The Emit V2 private note pool: one entry point, `transact`, for deposits, private transfers and
-/// withdrawals, each a folded proof verified by the ZK_VERIFY precompile, of one of two pipelines: the
-/// `identity_transfer` (a passport's eid steps, the channel session, DG1 sealed, the 2-in / 2-out JoinSplit, its
-/// note opening sealed) or, for a holder registered in the identity cache, `member_transfer` (membership in the
-/// identity tree instead of the passport's steps, the transfer bound to the registered key). `register` takes a
-/// proof of the `identity_register` pipeline (the passport's eid steps, then the registration) and appends its
-/// leaf to the identity tree. The checks are the design's "What the chain checks"
+/// @notice The Emit V2 private note pool: `register` takes a proof of the `identity_register` pipeline (the
+/// passport's eid steps, then the registration) and appends its leaf to the identity tree; one entry point,
+/// `transact`, for deposits, private transfers and withdrawals, each a folded proof of `member_transfer`
+/// (membership in the identity tree, the channel session, DG1 sealed, the 2-in / 2-out JoinSplit bound to the
+/// registered key, its note opening sealed), verified by the ZK_VERIFY precompile. Only registered holders
+/// transact; every note is 0 or at least 1/3 of the native coin (the transfer circuit checks it). The checks are the design's "What the chain checks"
 /// (emit-v2-transfer-mechanism.md §5) and the identity cache's (README).
 contract EmitV2Pool is IMT {
     address internal constant ZK_VERIFY = address(0x0100);
@@ -45,14 +44,9 @@ contract EmitV2Pool is IMT {
     uint256 internal constant FIELDS = 35;
     uint256 internal constant F_DEPLOYMENT = 0;
     uint256 internal constant F_PIPELINE = 1;
-    /// identity_transfer: registry root, date, scope, nullifier, then the transfer's fields from 7 (32 slots);
-    /// member_transfer: identity root, date, holder tag, then the same from 6 (31 slots).
-    uint256 internal constant F_REGISTRY_ROOT = 3;
+    /// member_transfer: identity root, date, holder tag, then the transfer's fields from 6 (31 slots).
     uint256 internal constant F_IDENTITY_ROOT = 3;
     uint256 internal constant F_DATE = 4;
-    uint256 internal constant F_SCOPE = 5;
-    uint256 internal constant F_NULLIFIER = 6;
-    uint256 internal constant TRANSFER_AT = 7;
     uint256 internal constant MEMBER_AT = 6;
     /// The transfer's fields, from its first (session, DG1 envelope, transfer, note envelope).
     uint256 internal constant T_CTX = 0;
@@ -72,14 +66,16 @@ contract EmitV2Pool is IMT {
     uint256 internal constant T_PAYOUT = 21;
     uint256 internal constant T_C_NOTE = 22; // 22..27
     /// identity_register: registry root, date, scope, nullifier, leaf, expiry.
+    uint256 internal constant F_REGISTRY_ROOT = 3;
+    uint256 internal constant F_SCOPE = 5;
+    uint256 internal constant F_NULLIFIER = 6;
     uint256 internal constant F_LEAF = 7;
     uint256 internal constant F_EXPIRY = 8;
 
     uint256 public constant REGISTRY_RING = 8;
 
     bytes32 public immutable deploymentRoot;
-    /// The pipelines accepted: identity_transfer, identity_register, member_transfer.
-    bytes32 public immutable transferPipeline;
+    /// The pipelines accepted: identity_register, member_transfer.
     bytes32 public immutable registerPipeline;
     bytes32 public immutable memberPipeline;
     /// The identity cache's tree.
@@ -87,6 +83,9 @@ contract EmitV2Pool is IMT {
     /// Registrations last until the end of their epoch at most (unix time / IDENTITY_EPOCH): the longest a
     /// revoked passport keeps transacting, so it should match the registry's revocation latency.
     uint256 public constant IDENTITY_EPOCH = 7 days;
+    /// In an epoch's last RENEWAL_WINDOW, a holder may register for the next epoch ahead, so a registration
+    /// made late in an epoch isn't cut short.
+    uint256 public constant RENEWAL_WINDOW = 1 days;
     address public owner;
     uint256 public dateTolerance = 1 days;
     uint256[REGISTRY_RING] public registryRoots;
@@ -113,21 +112,14 @@ contract EmitV2Pool is IMT {
     error NullifierSpent();
     error UnknownRegistryRoot();
     error DateOutOfRange();
-    error NonZeroScope();
     error WrongScope();
     error AlreadyRegistered();
     error ExpiryOutOfRange();
     error ValueMismatch();
     error PaymentFailed();
 
-    constructor(
-        bytes32 deploymentRoot_,
-        bytes32 transferPipeline_,
-        bytes32 registerPipeline_,
-        bytes32 memberPipeline_
-    ) {
+    constructor(bytes32 deploymentRoot_, bytes32 registerPipeline_, bytes32 memberPipeline_) {
         deploymentRoot = deploymentRoot_;
-        transferPipeline = transferPipeline_;
         registerPipeline = registerPipeline_;
         memberPipeline = memberPipeline_;
         identities = new IdentityTree();
@@ -171,14 +163,20 @@ contract EmitV2Pool is IMT {
     /// @notice Registers a passport's holder in the identity cache: a proof of identity_register (the document
     /// in the scope of its date's epoch, then the leaf and its expiry). The document's nullifier in that scope is
     /// used once and the registration ends with the epoch (and, as the circuit checks, at most at the passport's
-    /// expiry), so a passport has at most one live registration per pool at any time.
+    /// expiry). In the epoch's last RENEWAL_WINDOW the document may instead be in the next epoch's scope, the
+    /// registration then lasting to that epoch's end. So a passport has at most one live registration per pool,
+    /// two while a renewal overlaps the current one's last day.
     function register(bytes calldata proof) external {
         uint256[] memory f = _verify(registerPipeline, proof);
         if (!isKnownRegistryRoot(f[F_REGISTRY_ROOT])) revert UnknownRegistryRoot();
         uint256 date = f[F_DATE];
         _checkDate(date);
         uint256 epoch = date / IDENTITY_EPOCH;
-        if (f[F_SCOPE] != registrationScope(epoch)) revert WrongScope();
+        if (f[F_SCOPE] != registrationScope(epoch)) {
+            bool renewing = date + RENEWAL_WINDOW >= (epoch + 1) * IDENTITY_EPOCH;
+            if (!renewing || f[F_SCOPE] != registrationScope(epoch + 1)) revert WrongScope();
+            epoch += 1;
+        }
         uint256 nullifier = f[F_NULLIFIER];
         if (documentRegistered[nullifier]) revert AlreadyRegistered();
         uint256 expiry = f[F_EXPIRY];
@@ -190,7 +188,7 @@ contract EmitV2Pool is IMT {
 
     /// @notice Spends two notes (nullifiers) and creates two (commitments). A deposit has vPubIn = msg.value
     /// and dummy inputs; a withdrawal pays vPubOut to `payout`; the fee goes to the block producer. `pipeline`
-    /// is identity_transfer (the passport proved) or member_transfer (a registered holder).
+    /// is member_transfer's root (the only one accepted; the argument leaves room for another).
     function transact(
         bytes32 pipeline,
         bytes32 root,
@@ -203,21 +201,11 @@ contract EmitV2Pool is IMT {
         bytes calldata pqCiphertext,
         bytes calldata proof
     ) external payable {
-        uint256[] memory f;
-        uint256 t;
-        if (pipeline == transferPipeline) {
-            t = TRANSFER_AT;
-            f = _verify(pipeline, proof);
-            if (!isKnownRegistryRoot(f[F_REGISTRY_ROOT])) revert UnknownRegistryRoot();
-            if (f[F_SCOPE] != 0) revert NonZeroScope();
-        } else if (pipeline == memberPipeline) {
-            t = MEMBER_AT;
-            f = _verify(pipeline, proof);
-            // The registration's expiry is checked in the circuit against this date.
-            if (!identities.isKnownRoot(f[F_IDENTITY_ROOT])) revert UnknownIdentityRoot();
-        } else {
-            revert UnknownPipeline();
-        }
+        if (pipeline != memberPipeline) revert UnknownPipeline();
+        uint256 t = MEMBER_AT;
+        uint256[] memory f = _verify(pipeline, proof);
+        // The registration's expiry is checked in the circuit against this date.
+        if (!identities.isKnownRoot(f[F_IDENTITY_ROOT])) revert UnknownIdentityRoot();
         _checkDate(f[F_DATE]);
 
         // The proof's public fields are the calldata's.

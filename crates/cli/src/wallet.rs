@@ -1,12 +1,13 @@
 //! A user's wallet: the passport it proves with, the shielded key, the receiver (keys, bundle,
 //! channels), the contacts (one `Sender` per accepted bundle), the notes, the note tree and the
-//! identity tree rebuilt from the pool's events, and its registration in the identity cache. Persisted as JSON (`<home>/<name>.json`), the channel states
+//! identity tree followed from the pool's events (their frontiers and this wallet's paths), and its
+//! registration in the identity cache. Persisted as JSON (`<home>/<name>.json`), the channel states
 //! through zk-encryption's serde feature; written before every broadcast (the advanced chain key
 //! must never be reused).
 
 use crate::chain::{self, TxEvents};
 use crate::document::{self, Document};
-use crate::emit::{InNote, OutNote, Transfer};
+use crate::emit::{InNote, MIN_NOTE_VALUE, OutNote, Transfer};
 use crate::identity::{self, Registration};
 use crate::tree::Tree;
 use alloy::primitives::Address;
@@ -15,11 +16,9 @@ use emit_devnet_circuits::circuits::DEPLOYMENT;
 use emit_devnet_circuits::circuits::families::{
     KernelStepDocument, KernelStepDsc, KernelStepEnvelope, KernelStepMember,
     KernelStepNoteEnvelope, KernelStepRegister, KernelStepSession, KernelStepSod,
-    KernelStepTransfer, KernelStepTransferHolder,
+    KernelStepTransferHolder,
 };
-use emit_devnet_circuits::circuits::pipelines::{
-    identity_register, identity_transfer, member_transfer,
-};
+use emit_devnet_circuits::circuits::pipelines::{identity_register, member_transfer};
 use noir_zk_core::StepFamily;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -73,13 +72,12 @@ pub struct Wallet {
     pub notes: Vec<Note>,
     /// This wallet's outputs of transfers it sent, until the pool appends them.
     pub pending: Vec<Note>,
-    pub leaves: Vec<String>,
+    /// The note tree (the pool's NewCommitment events), watching this wallet's notes.
+    pub tree: Tree,
     /// The registration in the identity cache, if any.
-    #[serde(default)]
     pub identity: Option<Registration>,
-    /// The identity tree's leaves (the pool's IdentityRegistered events).
-    #[serde(default)]
-    pub identity_leaves: Vec<String>,
+    /// The identity tree (the pool's IdentityRegistered events), watching this wallet's leaf.
+    pub identity_tree: Tree,
     /// The last block synced.
     pub synced: u64,
 }
@@ -140,19 +138,6 @@ impl Wallet {
         Emit::pk(self.sk())
     }
 
-    pub fn tree(&self) -> Tree {
-        Tree::from_leaves(self.leaves.iter().map(|l| Fr::from_hex(l)).collect())
-    }
-
-    pub fn identity_tree(&self) -> Tree {
-        Tree::from_leaves(
-            self.identity_leaves
-                .iter()
-                .map(|l| Fr::from_hex(l))
-                .collect(),
-        )
-    }
-
     /// The registration, if the pool appended it and it is still valid at `now`.
     pub fn live_registration(&self, now: u64) -> Option<&Registration> {
         self.identity
@@ -174,79 +159,90 @@ impl Wallet {
     pub fn apply(&mut self, cid: Fr, t: &TxEvents) -> eyre::Result<Option<(u128, String, String)>> {
         for (leaf, i, _) in &t.identities {
             eyre::ensure!(
-                *i == self.identity_leaves.len() as u64,
+                *i == self.identity_tree.size,
                 "identity leaf {i} out of order (the wallet has {}): resync from scratch",
-                self.identity_leaves.len()
+                self.identity_tree.size
             );
-            self.identity_leaves.push(leaf.hex());
-            if let Some(r) = &mut self.identity
-                && r.leaf == leaf.hex()
-            {
+            let mine = self.identity.as_ref().is_some_and(|r| r.leaf == leaf.hex());
+            self.identity_tree.append(*leaf, mine);
+            if let Some(r) = self.identity.as_mut().filter(|_| mine) {
                 r.index = Some(*i);
             }
         }
-        for (c, i) in &t.commitments {
-            eyre::ensure!(
-                *i == self.leaves.len() as u64,
-                "leaf {i} out of order (the wallet has {}): resync from scratch",
-                self.leaves.len()
-            );
-            self.leaves.push(c.hex());
-            if let Some(k) = self.pending.iter().position(|n| n.commitment == c.hex()) {
-                let mut n = self.pending.remove(k);
-                n.index = Some(*i);
-                self.notes.push(n);
-            }
-        }
-        let spent: Vec<String> = t.nullifiers.iter().map(|n| n.hex()).collect();
-        let sk_nullifiers: Vec<String> =
-            self.notes.iter().map(|n| self.nullifier(n).hex()).collect();
-        let mut i = 0;
-        self.notes.retain(|_| {
-            i += 1;
-            !spent.contains(&sk_nullifiers[i - 1])
-        });
-        let (Some(envelope), [n0, n1], [c0, c1]) = (
+        // A note addressed here, found before its commitment is appended (the tree keeps paths
+        // only of the leaves it watches from their insertion).
+        let received = match (
             &t.envelope,
             t.nullifiers.as_slice(),
             t.commitments.as_slice(),
-        ) else {
-            return Ok(None);
-        };
-        let d = Delivery {
-            cid,
-            nullifiers: [*n0, *n1],
-            commitments: [*c0, *c1],
-            envelope: envelope.clone(),
-        };
-        let (note, dg1, how) = match self.receiver.scan(&d) {
-            Scan::Handshake { note, dg1 } => (note, dg1, "handshake".to_string()),
-            Scan::Ratchet { t, note, dg1 } => (note, dg1, format!("ratchet index {t}")),
-            Scan::NotMine => return Ok(None),
-            Scan::Invalid(e) => {
-                eprintln!(
-                    "{}: tx {} addressed here but refused: {e:?}",
-                    self.name, t.tx
-                );
-                return Ok(None);
+        ) {
+            (Some(envelope), [n0, n1], [c0, c1]) => {
+                let d = Delivery {
+                    cid,
+                    nullifiers: [*n0, *n1],
+                    commitments: [*c0, *c1],
+                    envelope: envelope.clone(),
+                };
+                match self.receiver.scan(&d) {
+                    Scan::Handshake { note, dg1 } => Some((note, dg1, "handshake".to_string())),
+                    Scan::Ratchet { t, note, dg1 } => {
+                        Some((note, dg1, format!("ratchet index {t}")))
+                    }
+                    Scan::NotMine => None,
+                    Scan::Invalid(e) => {
+                        eprintln!(
+                            "{}: tx {} addressed here but refused: {e:?}",
+                            self.name, t.tx
+                        );
+                        None
+                    }
+                }
             }
+            _ => None,
         };
-        eyre::ensure!(
-            note.commitment(cid, self.pk()) == c0.0,
-            "note does not open C0"
-        );
-        let mrz = Document::mrz(&dg1);
-        if !self.notes.iter().any(|n| n.commitment == c0.0.hex()) && note.value > 0 {
-            self.notes.push(Note {
-                value: note.value.to_string(),
-                rho: note.rho.hex(),
-                r: note.r.hex(),
-                commitment: c0.0.hex(),
-                index: Some(c0.1),
-                from: Some(mrz.clone()),
-            });
+        if let Some((note, _, _)) = &received {
+            eyre::ensure!(
+                note.commitment(cid, self.pk()) == t.commitments[0].0,
+                "note does not open C0"
+            );
         }
-        Ok(Some((note.value, mrz, how)))
+        for (c, i) in &t.commitments {
+            eyre::ensure!(
+                *i == self.tree.size,
+                "leaf {i} out of order (the wallet has {}): resync from scratch",
+                self.tree.size
+            );
+            let pending = self.pending.iter().position(|n| n.commitment == c.hex());
+            let got = received
+                .as_ref()
+                .filter(|(note, _, _)| *c == t.commitments[0].0 && note.value > 0);
+            self.tree.append(*c, pending.is_some() || got.is_some());
+            if let Some(k) = pending {
+                let mut n = self.pending.remove(k);
+                n.index = Some(*i);
+                self.notes.push(n);
+            } else if let Some((note, dg1, _)) = got
+                && !self.notes.iter().any(|n| n.commitment == c.hex())
+            {
+                self.notes.push(Note {
+                    value: note.value.to_string(),
+                    rho: note.rho.hex(),
+                    r: note.r.hex(),
+                    commitment: c.hex(),
+                    index: Some(*i),
+                    from: Some(Document::mrz(dg1)),
+                });
+            }
+        }
+        let spent: Vec<String> = t.nullifiers.iter().map(|n| n.hex()).collect();
+        let (gone, kept): (Vec<Note>, Vec<Note>) = std::mem::take(&mut self.notes)
+            .into_iter()
+            .partition(|n| spent.contains(&self.nullifier(n).hex()));
+        self.notes = kept;
+        for i in gone.iter().filter_map(|n| n.index) {
+            self.tree.unwatch(i);
+        }
+        Ok(received.map(|(note, dg1, how)| (note.value, Document::mrz(&dg1), how)))
     }
 
     /// Catches up with the pool's events up to the latest block; prints received notes.
@@ -307,29 +303,51 @@ impl Wallet {
         )
     }
 
-    /// Builds the transfer, proves it with this wallet's passport, and sends it from the EOA.
+    /// Builds the transfer, proves it (member_transfer: the registered holder's membership, not
+    /// the passport), and sends it from the EOA.
     pub async fn execute(
         &mut self,
         plan: Plan,
         ctx: &crate::Ctx,
         p: &impl Provider,
     ) -> eyre::Result<Receipt> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+        let registration = self.live_registration(now).cloned().ok_or_else(|| {
+            eyre::eyre!(
+                "{} has no live registration: prove the passport once with `zkpool identity register`",
+                self.name
+            )
+        })?;
+        for (_, v, _) in &plan.outs {
+            eyre::ensure!(
+                *v == 0 || *v >= MIN_NOTE_VALUE,
+                "a {} ETH note is below the minimum of {} ETH (a note is 0 or at least 1/3 ETH)",
+                crate::eth(*v),
+                crate::eth(MIN_NOTE_VALUE)
+            );
+        }
         let chain_id = p.get_chain_id().await?;
         let cid = Fr::from(chain_id);
-        let tree = self.tree();
-        let root = tree.root();
+        let root = self.tree.root();
         let sk = self.sk();
         let ins: Vec<InNote> = plan
             .ins
             .iter()
-            .map(|n| InNote {
-                sk,
-                value: n.value(),
-                rho: Fr::from_hex(&n.rho),
-                r: Fr::from_hex(&n.r),
-                path: tree.path(n.index.expect("appended")),
+            .map(|n| {
+                let index = n.index.expect("appended");
+                Ok(InNote {
+                    sk,
+                    value: n.value(),
+                    rho: Fr::from_hex(&n.rho),
+                    r: Fr::from_hex(&n.r),
+                    path: self.tree.path(index).ok_or_else(|| {
+                        eyre::eyre!("note {index} isn't watched: resync from scratch")
+                    })?,
+                })
             })
-            .collect();
+            .collect::<eyre::Result<_>>()?;
         let mut ins = ins.into_iter();
         let ins = [
             ins.next().unwrap_or_else(|| InNote::dummy(sk)),
@@ -370,90 +388,39 @@ impl Wallet {
         }
         self.save(&ctx.home)?;
 
+        // Membership in the identity tree, the session, DG1 (committed afresh) sealed, the transfer
+        // bound to the registered key, the note sealed.
         let doc = document::by_name(&self.document)?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
         let e = |what: &str| {
             let what = what.to_string();
             move |err: noir_zk_core::Error| eyre::eyre!("{what}: {err}")
         };
-        let registration = self
-            .live_registration(now)
-            .filter(|_| !ctx.full_passport)
-            .cloned();
-        let (pipeline, name, proof, prove_s) = match registration {
-            // A registered holder: membership in the identity tree, the session, DG1 (committed
-            // afresh) sealed, the transfer bound to the registered key, the note sealed.
-            Some(r) => {
-                let itree = self.identity_tree();
-                let salt = Rng::field();
-                let member = identity::member_inputs(
-                    itree.root(),
-                    now,
-                    sk,
-                    &doc.dg1,
-                    salt,
-                    r.expiry,
-                    r.blinding()?,
-                    &itree.path(r.index.expect("live")),
-                    t.ctx,
-                );
-                let pool = ctx.pool(&[])?;
-                let artifacts = pool.merged();
-                let start = Instant::now();
-                let proof = prove_member(
-                    &artifacts,
-                    member,
-                    doc.envelope(salt, t.ctx, t.channel.s),
-                    &t,
-                )?;
-                let prove_s = start.elapsed().as_secs_f64();
-                (member_transfer::ROOT, "member_transfer", proof, prove_s)
-            }
-            // The passport's eid steps, the session, DG1 sealed, the transfer, the note sealed.
-            None => {
-                let w = doc.witnesses(ctx.registry()?, now, t.ctx, t.channel.s)?;
-                let pool = ctx.pool(&w.labels)?;
-                let artifacts = pool.merged();
-                let start = Instant::now();
-                let (proof, _) = identity_transfer::fold(&artifacts)
-                    .map_err(e("pipeline"))?
-                    .app(KernelStepDsc::select(&w.labels[0], w.dsc).map_err(e("dsc"))?)
-                    .map_err(e("dsc"))?
-                    .app(KernelStepSod::select(&w.labels[1], w.sod).map_err(e("sod"))?)
-                    .map_err(e("sod"))?
-                    .app(
-                        KernelStepDocument::select(&w.labels[2], w.document)
-                            .map_err(e("document"))?,
-                    )
-                    .map_err(e("document"))?
-                    .app(
-                        KernelStepSession::select("channel_session", t.session_inputs())
-                            .map_err(e("session"))?,
-                    )
-                    .map_err(e("session"))?
-                    .app(
-                        KernelStepEnvelope::select("channel_envelope", w.envelope)
-                            .map_err(e("envelope"))?,
-                    )
-                    .map_err(e("envelope"))?
-                    .app(
-                        KernelStepTransfer::select("transfer", t.inputs())
-                            .map_err(e("transfer"))?,
-                    )
-                    .map_err(e("transfer"))?
-                    .app(
-                        KernelStepNoteEnvelope::select("channel_envelope", t.note_inputs())
-                            .map_err(e("note"))?,
-                    )
-                    .map_err(e("note"))?
-                    .hiding(&DEPLOYMENT)
-                    .map_err(e("prove"))?;
-                let prove_s = start.elapsed().as_secs_f64();
-                (identity_transfer::ROOT, "identity_transfer", proof, prove_s)
-            }
-        };
+        let index = registration.index.expect("live");
+        let path = self.identity_tree.path(index).ok_or_else(|| {
+            eyre::eyre!("identity leaf {index} isn't watched: resync from scratch")
+        })?;
+        let salt = Rng::field();
+        let member = identity::member_inputs(
+            self.identity_tree.root(),
+            now,
+            sk,
+            &doc.dg1,
+            salt,
+            registration.expiry,
+            registration.blinding()?,
+            &path,
+            t.ctx,
+        );
+        let artifacts = ctx.pool(&[])?.merged();
+        let start = Instant::now();
+        let proof = prove_member(
+            &artifacts,
+            member,
+            doc.envelope(salt, t.ctx, t.channel.s),
+            &t,
+        )?;
+        let prove_s = start.elapsed().as_secs_f64();
+        let (pipeline, name) = (member_transfer::ROOT, "member_transfer");
         let proof = proof.to_bytes();
         let proof_bytes = proof.len();
         // What ZK_VERIFY will do, locally first (and timed: the precompile's gas is priced on it).
@@ -517,21 +484,43 @@ impl Wallet {
 
     /// Registers this wallet's key with its passport in the pool's identity cache: proves the
     /// identity_register pipeline once (the document in the scope of this epoch, the leaf valid
-    /// until the epoch ends or the passport expires, whichever is first) and sends `register`.
-    pub async fn register(&mut self, ctx: &crate::Ctx, p: &impl Provider) -> eyre::Result<Receipt> {
+    /// until the epoch ends or the passport expires, whichever is first) and sends `register`. In
+    /// the epoch's last RENEWAL_WINDOW it registers for the next epoch instead (valid at once, until
+    /// that epoch ends). Refuses when that wouldn't outlast the live registration, unless `force`.
+    pub async fn register(
+        &mut self,
+        ctx: &crate::Ctx,
+        p: &impl Provider,
+        force: bool,
+    ) -> eyre::Result<Receipt> {
         let pool_address = ctx.pool_address()?;
         let c = chain::EmitV2Pool::new(pool_address, p);
         let epoch_len: u64 = c.IDENTITY_EPOCH().call().await?.to();
+        let renewal: u64 = c.RENEWAL_WINDOW().call().await?.to();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs();
-        let epoch = now / epoch_len;
+        let mut epoch = now / epoch_len;
+        if now + renewal >= (epoch + 1) * epoch_len {
+            epoch += 1;
+        }
+        let doc = document::by_name(&self.document)?;
+        let expiry = doc.expires()?.min((epoch + 1) * epoch_len - 1);
+        if let Some(r) = self.live_registration(now)
+            && r.expiry >= expiry
+            && !force
+        {
+            eyre::bail!(
+                "{} is registered until {} (identity leaf {}); --force to register again",
+                self.name,
+                r.expiry,
+                r.index.unwrap_or_default()
+            );
+        }
         let scope = c
             .registrationScope(alloy::primitives::U256::from(epoch))
             .call()
             .await?;
-        let doc = document::by_name(&self.document)?;
-        let expiry = doc.expires()?.min((epoch + 1) * epoch_len - 1);
         let (w, salt) = doc.eid(ctx.registry()?, now, &format!("{scope:#x}"))?;
         let labels = [w.selection.dsc, w.selection.sod, w.selection.document];
         let pool = ctx.pool(&labels)?;
@@ -572,6 +561,7 @@ impl Wallet {
         let verify_ms = start.elapsed().as_secs_f64() * 1e3;
 
         let leaf = identity::leaf(sk, &doc.dg1, expiry, blinding).hex();
+        let previous = self.identity.clone();
         self.identity = Some(Registration {
             leaf: leaf.clone(),
             index: None,
@@ -589,11 +579,14 @@ impl Wallet {
         let sent = match sent {
             Ok(s) => s,
             Err(err) => {
-                self.identity = None;
+                self.identity = previous;
                 self.save(&ctx.home)?;
                 return Err(err);
             }
         };
+        if let Some(i) = previous.and_then(|r| r.index) {
+            self.identity_tree.unwatch(i);
+        }
         self.sync(p, pool_address, &ctx.home).await?;
         eyre::ensure!(
             self.live_registration(now).is_some(),
@@ -639,9 +632,9 @@ impl Wallet {
             contacts: BTreeMap::new(),
             notes: vec![],
             pending: vec![],
-            leaves: vec![],
+            tree: Tree::default(),
             identity: None,
-            identity_leaves: vec![],
+            identity_tree: Tree::default(),
             synced: 0,
         })
     }

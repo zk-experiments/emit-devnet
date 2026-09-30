@@ -2,9 +2,9 @@
 # The whole system end to end: builds, starts the devnet node, deploys the pool, and runs Alice
 # (US passport) and Bob (DE passport) through identities, bundles, a registration each in the
 # identity cache (the passport proved once), then a deposit, a handshake and a ratchet transfer,
-# Bob's listener, a split, a merge and a withdrawal, each proving membership (member_transfer)
-# except the ratchet, which proves the passport again (identity_transfer) for comparison; checks
-# the balances and prints each step's pipeline, prove time and gas.
+# Bob's listener, a split, a merge and a withdrawal, each proving membership (member_transfer),
+# and a note below the minimum (1/3 ETH) refused; checks the balances and prints each step's
+# pipeline, prove time and gas.
 # The prover's own logging (bb) goes to $DEVNET/prover.log.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -36,10 +36,10 @@ zk -w bob listen --until 2 --timeout 900 >"$DEVNET/listen.log" &
 LISTEN=$!
 sleep 2
 
-step "Alice deposits 100, pays Bob 60 (handshake) and 5 (ratchet, the full passport for comparison)"
+step "Alice deposits 100, pays Bob 60 (handshake) and 5 (ratchet)"
 zk -w alice deposit --amount 100 | tee -a "$DEVNET/tx.log"
 zk -w alice transfer --to bob --amount 60 | tee -a "$DEVNET/tx.log"
-zk -w alice transfer --to bob --amount 5 --full-passport | tee -a "$DEVNET/tx.log"
+zk -w alice transfer --to bob --amount 5 | tee -a "$DEVNET/tx.log"
 wait "$LISTEN"
 cat "$DEVNET/listen.log"
 listened=$(cat "$DEVNET/listen.log")
@@ -56,6 +56,11 @@ zk -w bob split --amounts 10,49.99 | tee -a "$DEVNET/tx.log"
 zk -w bob merge | tee -a "$DEVNET/tx.log"
 zk -w bob withdraw --amount 30 --to "$BOB_EOA" | tee -a "$DEVNET/tx.log"
 
+step "a note below the minimum (1/3 ETH) is refused"
+if small=$("$BIN/zkpool" -w bob split --amounts 0.1 2>&1); then echo "a 0.1 ETH note was accepted" >&2; exit 1; fi
+expect "$small" "below the minimum"
+echo "$small"
+
 step "balances"
 a=$(zk -w alice balance); b=$(zk -w bob balance)
 echo "$a"; echo "$b"
@@ -70,7 +75,6 @@ step "timings and gas (pipeline | prove | gas)"
 log=$(cat "$DEVNET/tx.log")
 expect "$log" "registered (identity leaf 0"
 expect "$log" "registered (identity leaf 1"
-[ "$(grep -c ': member_transfer proved' <<<"$log")" = 5 ] || { echo "expected 5 member transfers" >&2; exit 1; }
-[ "$(grep -c ': identity_transfer proved' <<<"$log")" = 1 ] || { echo "expected 1 full transfer" >&2; exit 1; }
+[ "$(grep -c ': member_transfer proved' <<<"$log")" = 6 ] || { echo "expected 6 member transfers" >&2; exit 1; }
 sed -E 's/^([a-z]+: [^:]*): ([a-z_]+) proved in ([0-9.]+ s).*, gas ([0-9]+) .*/\1 | \2 | \3 | \4 gas/' "$DEVNET/tx.log" | grep '|'
 echo; echo "demo ok"

@@ -26,6 +26,9 @@ pub global VALUE_BITS: u32 = 128;
 /// Transfer's databus output (`Transfer::flatten`): 11 public fields, then
 /// the note payload's commitment (the link to the note envelope app).
 pub global TRANSFER_FIELDS: u32 = 12;
+/// The smallest note a transfer may create: 1/3 of the native coin (wei, rounded down). An output is
+/// either this much or more, or 0 (a dummy).
+pub global MIN_NOTE_VALUE: u128 = 333333333333333333;
 /// `transfer_holder`'s databus output: ctx, the holder tag, then as `Transfer::flatten` from cid.
 pub global TRANSFER_HOLDER_FIELDS: u32 = 13;
 
@@ -188,7 +191,8 @@ pub fn holder_tag(sk: Field, ctx: Field) -> Field {
 }
 
 /// The transfer of the `member_transfer` pipeline: `transfer`, with both inputs (dummies too) held
-/// by one key, whose holder tag in this transfer's ctx is the record's second field:
+/// by one key, every output 0 or at least `MIN_NOTE_VALUE`, whose holder tag in this transfer's ctx is
+/// the record's second field:
 /// `[ctx, holder_tag, cid, root, N0, N1, C0, C1, v_in, v_out, fee, payout_recipient, note_commitment]`.
 pub fn transfer_holder(
     cid: Field,
@@ -202,7 +206,23 @@ pub fn transfer_holder(
     note_salt: Field,
 ) -> [Field; TRANSFER_HOLDER_FIELDS] {
     assert(ins[0].sk == ins[1].sk, "the inputs have two holders");
-    let t = transfer(cid, root, v_in, v_out, fee, payout_recipient, ins, outs, note_salt).flatten();
+    for j in 0..2 {
+        // `transfer` range-checks the value to 128 bits, so the cast is exact.
+        let v = outs[j].value as u128;
+        assert((v == 0) | (v >= MIN_NOTE_VALUE), "output note below the minimum value");
+    }
+    let t = transfer(
+        cid,
+        root,
+        v_in,
+        v_out,
+        fee,
+        payout_recipient,
+        ins,
+        outs,
+        note_salt,
+    )
+        .flatten();
     let mut out: [Field; TRANSFER_HOLDER_FIELDS] = [0; TRANSFER_HOLDER_FIELDS];
     out[0] = t[0];
     out[1] = holder_tag(ins[0].sk, t[0]);

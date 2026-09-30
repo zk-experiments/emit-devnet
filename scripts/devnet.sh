@@ -32,7 +32,6 @@ grep -E '^(pins|precompiles):' "$DEVNET/node.log" || true
 
 info=$("$BIN/zkpool" --rpc "$RPC" info)
 export DEPLOYMENT_ROOT=$(awk '/^deployment_root/ {print $2}' <<<"$info")
-export TRANSFER_PIPELINE=$(awk '/^identity_transfer/ {print $2}' <<<"$info")
 export REGISTER_PIPELINE=$(awk '/^identity_register/ {print $2}' <<<"$info")
 export MEMBER_PIPELINE=$(awk '/^member_transfer/ {print $2}' <<<"$info")
 export REGISTRY_ROOTS="$(awk '/^fixtures_registry/ {print $2}' <<<"$info"),$(awk '/^csca_registry/ {print $2}' <<<"$info")"

@@ -10,6 +10,10 @@ use zk_encryption_circuits::wallet::poseidon::{FieldHex, Rng};
 use zk_encryption_circuits::wallet::ratchet::Ratchet;
 use zk_encryption_circuits::wallet::sender::ChannelWitness;
 
+/// The smallest note a transfer may create (emit::MIN_NOTE_VALUE, which transfer_holder checks):
+/// 1/3 of the native coin in wei, rounded down. An output is this much or more, or 0.
+pub const MIN_NOTE_VALUE: u128 = 333_333_333_333_333_333;
+
 /// A transfer input.
 #[derive(Clone, Debug)]
 pub struct InNote {

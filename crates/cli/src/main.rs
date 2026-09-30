@@ -59,9 +59,6 @@ struct Cli {
     wallet: Option<String>,
     #[arg(long, env = "ZKPOOL_CHAIN_ID", default_value_t = 3607, global = true)]
     chain_id: u64,
-    /// Prove the passport (identity_transfer) even with a live registration (member_transfer).
-    #[arg(long, global = true)]
-    full_passport: bool,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -152,9 +149,10 @@ enum IdentityCmd {
     /// Prints the receiver bundle (base64url).
     Show,
     /// Proves the passport once and registers the shielded key in the pool's identity cache:
-    /// later transactions prove membership (member_transfer) until the registration expires.
+    /// every transaction proves membership (member_transfer) until the registration expires. In
+    /// an epoch's last day it registers for the next epoch.
     Register {
-        /// Register again even if the current registration is still live.
+        /// Register again even if that wouldn't outlast the live registration.
         #[arg(long)]
         force: bool,
     },
@@ -176,7 +174,6 @@ pub struct Ctx {
     pub home: PathBuf,
     pub rpc: String,
     pub pool: Option<Address>,
-    pub full_passport: bool,
     registry: OnceLock<csca_registry::output::Registry>,
     artifacts: OnceLock<Pool>,
 }
@@ -246,7 +243,6 @@ async fn main() -> eyre::Result<()> {
         home: home.clone(),
         rpc: cli.rpc.clone(),
         pool: cli.pool,
-        full_passport: cli.full_passport,
         registry: OnceLock::new(),
         artifacts: OnceLock::new(),
     };
@@ -266,14 +262,6 @@ async fn main() -> eyre::Result<()> {
             println!(
                 "deployment_root   {}",
                 emit_devnet_circuits::hex32(&DEPLOYMENT_ROOT)
-            );
-            println!(
-                "identity_transfer {}",
-                emit_devnet_circuits::hex32(&pipelines::identity_transfer::ROOT)
-            );
-            println!(
-                "transfer_only     {}",
-                emit_devnet_circuits::hex32(&pipelines::transfer_only::ROOT)
             );
             println!(
                 "identity_register {}",
@@ -330,17 +318,7 @@ async fn main() -> eyre::Result<()> {
         Cmd::Identity(IdentityCmd::Register { force }) => {
             let (p, mut w) = (provider().await?, Wallet::load(&home, &name()?)?);
             w.sync(&p, ctx.pool_address()?, &home).await?;
-            if let Some(r) = w.live_registration(now())
-                && !force
-            {
-                eyre::bail!(
-                    "{} is registered until {} (leaf {}); --force to register again",
-                    w.name,
-                    r.expiry,
-                    r.index.unwrap_or_default()
-                );
-            }
-            let r = w.register(&ctx, &p).await?;
+            let r = w.register(&ctx, &p, force).await?;
             let reg = w.identity.as_ref().expect("registered");
             report(
                 &format!(
@@ -558,7 +536,7 @@ async fn main() -> eyre::Result<()> {
                 "{}: synced to block {} ({} leaves), {got} note(s) received, balance {} ETH",
                 w.name,
                 w.synced,
-                w.leaves.len(),
+                w.tree.size,
                 eth(w.balance())
             );
         }

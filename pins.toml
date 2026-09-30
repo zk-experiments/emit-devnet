@@ -10,12 +10,11 @@ version = "0.3.0"
 kernels_family_root = "0x0eb7f8157a5b52a81ce181f7dca9e0190e738dc5cb41dde4d3fdde618b84937f"
 
 [emit]
-# This repository's layers (crates/circuits/noir), frozen by `noir-zk freeze`: the transfer apps
-# (emit/transfer, emit/transfer_holder) and the identity cache (identity_cache/register, member).
+# This repository's layers (crates/circuits/noir), frozen by `noir-zk freeze`: the transfer app
+# (emit/transfer_holder) and the identity cache (identity_cache/register, member).
 library = "emit-devnet@0.2.0"
 [emit.family_roots]
-transfer = "0x101453d93d091f5a72b40bbe6cc5b63d076638c8d301e87ef52c91f006f2c2b6"
-transfer_holder = "0x09d917b9f08bcc54c20a273541ee956f011b4e42308e90665cd78e5326040106"
+transfer_holder = "0x2a50870b6c65dbb363bb5627a4c435e670f942247560a698d10f61056ff4e27a"
 register = "0x127dc46e65a5b323265eab1bd7eb35f5291cebbda35a56d35252c8af63846c41"
 member = "0x03f6f1875f4202a360af7b6cc88c52d3cee772896e97181466c8f9bcd15864be"
 
@@ -42,8 +41,6 @@ registry = "https://registry.zk-eid.dev/registry-20260928-1039/registry.json"
 registry_sha256 = "17a21c0f7997de83a7ebc9296b6a041dc84286e4805374037faac6dd8bcf4444"
 
 [deployment]
-root = "0x0c395ade9bfd15f78d0d130432fa6201426883d08f51682966298a67f9375a87"
-identity_transfer = { root = "0x2e18854ae8917020c91f87b84e3b576391859af989581f05d8514669502d968b", length = 7 }
-transfer_only = { root = "0x1cd91016c533ab0d8d0a25a240adc78fe9032e6775bbba787f6aa15ce97014d4", length = 3 }
+root = "0x0f5a24c063ff3490d08432c86662afdaa1b248977102429e2d7a30e35d02d8a2"
 identity_register = { root = "0x12bb22def4df1c088cf5398a371ac04796fb5565680983ad9f44a9446c91c445", length = 4 }
-member_transfer = { root = "0x155461422196bdf5907cc4d76e85c132c3466f76bcaea457bc93377160e6c784", length = 5 }
+member_transfer = { root = "0x2341010328d0e285ed1710198b0dd25810cae336839901ac8d7641dd4b07606a", length = 5 }

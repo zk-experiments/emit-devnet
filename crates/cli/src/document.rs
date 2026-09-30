@@ -1,6 +1,6 @@
 //! The six synthetic passports (`fixtures/documents.json`, from the experiments repository: a
 //! mock CSCA, the complete EF.SOD with its DSC, and DG1 each), the csca-registry of their CSCAs
-//! the devnet accepts, and their eid witnesses (eid-prover v0.8.0).
+//! the devnet accepts, and the inputs of their registration's eid steps (eid-prover v0.8.0).
 
 use csca_registry::output::Registry;
 use zk_encryption_circuits::wallet::Fr;
@@ -14,16 +14,6 @@ pub struct Document {
     pub csca_der: Vec<u8>,
     pub ef_sod: Vec<u8>,
     pub dg1: Dg1,
-}
-
-/// The inputs of one document's apps for one transfer.
-pub struct Witnesses {
-    pub dsc: String,
-    pub sod: String,
-    pub document: String,
-    /// The DG1 envelope app (channel/envelope).
-    pub envelope: String,
-    pub labels: [String; 3],
 }
 
 pub fn fixtures() -> Vec<Document> {
@@ -65,8 +55,8 @@ pub fn registry_root(reg: &Registry) -> Fr {
 }
 
 impl Document {
-    /// eid's DSC, SOD and document steps' inputs (fresh salts) at `date` in nullifier `scope`
-    /// ("0" for none), and the salt of the document's DG1 commitment.
+    /// eid's DSC, SOD and document steps' inputs (fresh salts) at `date` in nullifier `scope`, and
+    /// the salt of the document's DG1 commitment.
     pub fn eid(
         &self,
         reg: &Registry,
@@ -88,19 +78,6 @@ impl Document {
         )
         .map_err(|e| eyre::eyre!("{}: {e}", self.name))?;
         Ok((w, dg1_salt))
-    }
-
-    /// The step inputs for one transfer: eid's steps (scope 0), and the channel envelope app
-    /// sealing DG1 under the chain key `s` in the transfer's context.
-    pub fn witnesses(&self, reg: &Registry, date: u64, ctx: Fr, s: Fr) -> eyre::Result<Witnesses> {
-        let (w, dg1_salt) = self.eid(reg, date, "0")?;
-        Ok(Witnesses {
-            dsc: w.dsc,
-            sod: w.sod,
-            document: w.document,
-            envelope: self.envelope(dg1_salt, ctx, s),
-            labels: [w.selection.dsc, w.selection.sod, w.selection.document],
-        })
     }
 
     /// The DG1 envelope app's inputs: DG1's payload, committed under `salt`, sealed under the

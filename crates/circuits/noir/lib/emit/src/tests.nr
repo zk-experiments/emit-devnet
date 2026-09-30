@@ -46,10 +46,11 @@ fn rejects_wrong_fee() {
 
 #[test]
 fn transfer_holder_publishes_the_tag_of_its_inputs_key() {
-    let mut ins = INS;
-    ins[1].sk = ins[0].sk;
-    let t = crate::transfer(CID, ROOT, 0, 0, FEE, PAYOUT, ins, OUTS, NOTE_SALT).flatten();
-    let r = crate::transfer_holder(CID, ROOT, 0, 0, FEE, PAYOUT, ins, OUTS, NOTE_SALT);
+    let min = crate::MIN_NOTE_VALUE as Field;
+    let (ins, outs) = holder_notes(min, min);
+    let v_in = 2 * min + FEE;
+    let t = crate::transfer(CID, ROOT, v_in, 0, FEE, PAYOUT, ins, outs, NOTE_SALT).flatten();
+    let r = deposit(min, min);
     assert_eq(r[0], t[0]);
     assert_eq(r[1], crate::holder_tag(ins[0].sk, t[0]));
     for i in 1..12 {
@@ -59,5 +60,41 @@ fn transfer_holder_publishes_the_tag_of_its_inputs_key() {
 
 #[test(should_fail_with = "the inputs have two holders")]
 fn transfer_holder_rejects_two_keys() {
-    let _ = crate::transfer_holder(CID, ROOT, 0, 0, FEE, PAYOUT, INS, OUTS, NOTE_SALT);
+    let min = crate::MIN_NOTE_VALUE as Field;
+    let (mut ins, outs) = holder_notes(min, 0);
+    ins[1].sk = ins[0].sk + 1;
+    let _ = crate::transfer_holder(CID, ROOT, min + FEE, 0, FEE, PAYOUT, ins, outs, NOTE_SALT);
+}
+
+/// One holder's dummy inputs and outputs worth `a` and `b`.
+fn holder_notes(a: Field, b: Field) -> ([crate::InNote; 2], [crate::OutNote; 2]) {
+    let mut ins = INS;
+    ins[1].sk = ins[0].sk;
+    ins[0].value = 0;
+    ins[1].value = 0;
+    let mut outs = OUTS;
+    outs[0].value = a;
+    outs[1].value = b;
+    (ins, outs)
+}
+
+/// A deposit of `a` and `b` into one holder's notes.
+fn deposit(a: Field, b: Field) -> [Field; crate::TRANSFER_HOLDER_FIELDS] {
+    let (ins, outs) = holder_notes(a, b);
+    crate::transfer_holder(CID, ROOT, a + b + FEE, 0, FEE, PAYOUT, ins, outs, NOTE_SALT)
+}
+
+#[test]
+fn transfer_holder_accepts_the_minimum_and_dummies() {
+    let min = crate::MIN_NOTE_VALUE as Field;
+    let _ = deposit(min, 0);
+    let _ = deposit(min, min + 1);
+}
+
+#[test(should_fail_with = "output note below the minimum value")]
+fn transfer_holder_rejects_a_note_below_the_minimum() {
+    let _ = deposit(
+        crate::MIN_NOTE_VALUE as Field,
+        crate::MIN_NOTE_VALUE as Field - 1,
+    );
 }

@@ -1,10 +1,10 @@
 //! The demo as a test, against a spawned node: `cargo test -- --ignored devnet` (needs forge and
 //! cast on PATH, and the network the first time: eid's packs and Noir source, the catalogs).
 //! Alice (US passport) and Bob (DE passport) each register once in the identity cache; Alice
-//! deposits 100 and pays Bob 60 on the handshake (proving membership) and 5 on the ratchet (the
-//! full passport); Bob's listener sees both with Alice's MRZ; Bob splits, merges and withdraws 30
-//! to his EOA (membership); every balance is checked exactly, the EOA's net of the withdrawal's
-//! gas, and each transaction's pipeline.
+//! deposits 100 and pays Bob 60 on the handshake and 5 on the ratchet; Bob's listener sees both
+//! with Alice's MRZ; Bob splits, merges and withdraws 30 to his EOA, and a note below the minimum
+//! is refused; every transaction proves membership (member_transfer); every balance is checked
+//! exactly, the EOA's net of the withdrawal's gas.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -148,7 +148,6 @@ fn devnet_end_to_end() {
             DEPLOYER_KEY,
         ])
         .env("DEPLOYMENT_ROOT", field("deployment_root"))
-        .env("TRANSFER_PIPELINE", field("identity_transfer"))
         .env("REGISTER_PIPELINE", field("identity_register"))
         .env("MEMBER_PIPELINE", field("member_transfer"))
         .env(
@@ -229,14 +228,7 @@ fn devnet_end_to_end() {
         "-w", "alice", "transfer", "--to", "bob", "--amount", "60",
     ]));
     log.push(zp(&[
-        "-w",
-        "alice",
-        "transfer",
-        "--to",
-        "bob",
-        "--amount",
-        "5",
-        "--full-passport",
+        "-w", "alice", "transfer", "--to", "bob", "--amount", "5",
     ]));
     let heard =
         String::from_utf8_lossy(&listen.wait_with_output().expect("listen").stdout).into_owned();
@@ -248,6 +240,17 @@ fn devnet_end_to_end() {
 
     log.push(zp(&["-w", "bob", "split", "--amounts", "10,49.99"]));
     log.push(zp(&["-w", "bob", "merge"]));
+    let small = Command::new(&zkpool_bin)
+        .args(["--home", dir.join("wallets").to_str().expect("utf-8")])
+        .args(["--rpc", &rpc(), "--pool", &pool])
+        .args(["-w", "bob", "split", "--amounts", "0.1"])
+        .output()
+        .expect("zkpool");
+    let why = String::from_utf8_lossy(&small.stderr);
+    assert!(
+        !small.status.success() && why.contains("below the minimum"),
+        "{why}"
+    );
     let before = wei(&cast(&["balance", BOB_EOA]));
     let withdraw = zp(&["-w", "bob", "withdraw", "--amount", "30", "--to", BOB_EOA]);
     log.push(withdraw.clone());
@@ -276,19 +279,7 @@ fn devnet_end_to_end() {
         .iter()
         .map(|l| l.split(" proved").next().and_then(|s| s.rsplit(' ').next()))
         .collect();
-    assert_eq!(
-        pipelines,
-        [
-            "member_transfer",
-            "member_transfer",
-            "identity_transfer",
-            "member_transfer",
-            "member_transfer",
-            "member_transfer"
-        ]
-        .map(Some),
-        "{log:?}"
-    );
+    assert_eq!(pipelines, [Some("member_transfer"); 6], "{log:?}");
     for l in log.iter().flat_map(|s| s.lines()) {
         println!("{l}");
     }

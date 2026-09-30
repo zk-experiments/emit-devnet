@@ -24,6 +24,7 @@ mod abi {
             function register(bytes proof) external;
             function registrationScope(uint256 epoch) external view returns (uint256);
             function IDENTITY_EPOCH() external view returns (uint256);
+            function RENEWAL_WINDOW() external view returns (uint256);
             function currentRoot() external view returns (uint256);
             function nextIndex() external view returns (uint256);
         }
@@ -124,7 +125,7 @@ pub async fn events(
 
 /// The calldata of a transfer and its proof.
 pub struct Transact {
-    /// identity_transfer's or member_transfer's root.
+    /// member_transfer's root.
     pub pipeline: [u8; 32],
     pub root: Fr,
     pub nullifiers: [Fr; 2],

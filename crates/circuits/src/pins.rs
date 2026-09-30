@@ -65,8 +65,6 @@ pub struct Csca {
 #[derive(Clone, Debug, Deserialize)]
 pub struct Deployment {
     pub root: String,
-    pub identity_transfer: PipelinePin,
-    pub transfer_only: PipelinePin,
     pub identity_register: PipelinePin,
     pub member_transfer: PipelinePin,
 }
@@ -207,18 +205,6 @@ impl Pins {
             &mut r,
         )?;
         for (name, pin, root, len) in [
-            (
-                "identity_transfer",
-                &self.deployment.identity_transfer,
-                pipelines::identity_transfer::ROOT,
-                pipelines::identity_transfer::PIPELINE.len(),
-            ),
-            (
-                "transfer_only",
-                &self.deployment.transfer_only,
-                pipelines::transfer_only::ROOT,
-                pipelines::transfer_only::PIPELINE.len(),
-            ),
             (
                 "identity_register",
                 &self.deployment.identity_register,

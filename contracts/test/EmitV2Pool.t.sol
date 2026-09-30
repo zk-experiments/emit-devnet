@@ -33,7 +33,6 @@ contract EmitV2PoolTest is Test {
     address constant VERIFY = address(0x0100);
     address constant POSEIDON = address(0x0101);
     bytes32 constant DEPLOYMENT = bytes32(uint256(0xd0));
-    bytes32 constant PIPELINE = bytes32(uint256(0xa1));
     bytes32 constant REGISTER = bytes32(uint256(0xa2));
     bytes32 constant MEMBER = bytes32(uint256(0xa3));
     uint256 constant REGISTRY = 0x1234;
@@ -57,7 +56,7 @@ contract EmitV2PoolTest is Test {
     function setUp() public {
         vm.etch(VERIFY, address(new MockVerifier()).code);
         vm.etch(POSEIDON, address(new MockPoseidon()).code);
-        pool = new EmitV2Pool(DEPLOYMENT, PIPELINE, REGISTER, MEMBER);
+        pool = new EmitV2Pool(DEPLOYMENT, REGISTER, MEMBER);
         pool.addRegistryRoot(REGISTRY);
         ct = new bytes(1536);
         for (uint256 i = 0; i < 1536; i++) {
@@ -70,7 +69,7 @@ contract EmitV2PoolTest is Test {
     }
 
     function call(uint256 vIn, uint256 vOut, uint256 fee, uint256 salt) internal view returns (Call memory c) {
-        c.pipeline = PIPELINE;
+        c.pipeline = MEMBER;
         c.root = bytes32(pool.currentRoot());
         c.n = [keccak256(abi.encode("n0", salt)), keccak256(abi.encode("n1", salt))];
         c.c = [keccak256(abi.encode("c0", salt)), keccak256(abi.encode("c1", salt))];
@@ -80,19 +79,17 @@ contract EmitV2PoolTest is Test {
         c.payout = vOut > 0 ? payout : address(0);
     }
 
-    /// The fields a valid proof of `c` would publish: identity_transfer's (registry root, date, scope,
-    /// nullifier, then the transfer from 7) or member_transfer's (identity root, date, holder tag, then
-    /// the transfer from 6, a zero slot last).
+    /// The fields a valid member_transfer proof of `c` would publish: identity root, date, holder tag, then
+    /// the transfer from 6, a zero slot last.
     function fieldsOf(Call memory c) internal view returns (uint256[] memory f) {
-        bool isMember = c.pipeline == MEMBER;
-        uint256 t = isMember ? 6 : 7;
+        uint256 t = 6;
         f = new uint256[](35);
         f[0] = uint256(DEPLOYMENT);
         f[1] = uint256(c.pipeline);
-        f[2] = isMember ? 5 : 7;
-        f[3] = isMember ? pool.identities().currentRoot() : REGISTRY;
+        f[2] = 5;
+        f[3] = pool.identities().currentRoot();
         f[4] = block.timestamp;
-        f[5] = isMember ? 0x7a6 : 0;
+        f[5] = 0x7a6;
         (, bytes memory ctx) = POSEIDON.staticcall(
             abi.encode(
                 uint256(0x656d69742d76322f637478),
@@ -148,7 +145,7 @@ contract EmitV2PoolTest is Test {
         assertEq(pool.nextIndex(), 2);
         assertEq(address(pool).balance, 100 ether);
         assertTrue(pool.nullifierSpent(uint256(c.n[0])));
-        assertTrue(pool.isKnownRoot(uint256(c.root)), "the previous root stays in the ring");
+        assertTrue(pool.isKnownRoot(uint256(c.root)), "the previous root stays known");
         assertTrue(pool.currentRoot() != uint256(c.root));
     }
 
@@ -188,60 +185,21 @@ contract EmitV2PoolTest is Test {
         pool.transact{value: 1 ether}(c.pipeline, c.root, c.n, c.c, c.vIn, c.vOut, c.fee, c.payout, ct, hex"00");
     }
 
-    function test_stale_root_is_refused() public {
+    function test_every_root_stays_known() public {
         bytes32 first = bytes32(pool.currentRoot());
-        for (uint256 i = 0; i < 16; i++) {
-            deposit(1, 10 + i); // 32 inserts push the first root out of the ring
+        for (uint256 i = 0; i < 40; i++) {
+            deposit(1, 10 + i); // 80 inserts: more than Emit V1's ring of 32 kept
         }
         Call memory c = call(1, 0, 0, 99);
         c.root = first;
+        send(c, fieldsOf(c), 1);
+
+        c = call(1, 0, 0, 100);
+        c.root = bytes32(uint256(0x404));
         uint256[] memory f = fieldsOf(c);
         MockVerifier(VERIFY).set(f, false);
         vm.expectRevert(EmitV2Pool.UnknownRoot.selector);
         pool.transact{value: 1}(c.pipeline, c.root, c.n, c.c, c.vIn, c.vOut, c.fee, c.payout, ct, hex"00");
-    }
-
-    function test_every_public_field_must_match_the_calldata() public {
-        string[12] memory names =
-            ["cid", "root", "n0", "n1", "c0", "c1", "vPubIn", "vPubOut", "fee", "payout", "ctx", "ct"];
-        uint256[12] memory index = [uint256(19), 20, 21, 22, 23, 24, 25, 26, 27, 28, 7, 12];
-        for (uint256 k = 0; k < 12; k++) {
-            Call memory c = call(1 ether, 0, 0, 100 + k);
-            uint256[] memory f = fieldsOf(c);
-            f[index[k]] ^= 1;
-            MockVerifier(VERIFY).set(f, false);
-            vm.expectRevert(abi.encodeWithSelector(EmitV2Pool.OutputMismatch.selector, names[k]));
-            pool.transact{value: 1 ether}(c.pipeline, c.root, c.n, c.c, c.vIn, c.vOut, c.fee, c.payout, ct, hex"00");
-        }
-    }
-
-    function test_document_checks() public {
-        Call memory c = call(1 ether, 0, 0, 1);
-        uint256[] memory f = fieldsOf(c);
-        MockVerifier(VERIFY).set(f, false);
-
-        f[3] = 0x9999;
-        MockVerifier(VERIFY).set(f, false);
-        vm.expectRevert(EmitV2Pool.UnknownRegistryRoot.selector);
-        pool.transact{value: 1 ether}(c.pipeline, c.root, c.n, c.c, c.vIn, c.vOut, c.fee, c.payout, ct, hex"00");
-
-        f = fieldsOf(c);
-        f[4] = block.timestamp - 2 days;
-        MockVerifier(VERIFY).set(f, false);
-        vm.expectRevert(EmitV2Pool.DateOutOfRange.selector);
-        pool.transact{value: 1 ether}(c.pipeline, c.root, c.n, c.c, c.vIn, c.vOut, c.fee, c.payout, ct, hex"00");
-
-        f = fieldsOf(c);
-        f[5] = 1;
-        MockVerifier(VERIFY).set(f, false);
-        vm.expectRevert(EmitV2Pool.NonZeroScope.selector);
-        pool.transact{value: 1 ether}(c.pipeline, c.root, c.n, c.c, c.vIn, c.vOut, c.fee, c.payout, ct, hex"00");
-
-        f = fieldsOf(c);
-        f[0] ^= 1;
-        MockVerifier(VERIFY).set(f, false);
-        vm.expectRevert(abi.encodeWithSelector(EmitV2Pool.OutputMismatch.selector, "deployment root"));
-        pool.transact{value: 1 ether}(c.pipeline, c.root, c.n, c.c, c.vIn, c.vOut, c.fee, c.payout, ct, hex"00");
     }
 
     function test_value_must_equal_vpubin() public {
@@ -302,8 +260,10 @@ contract EmitV2PoolTest is Test {
         f[1] = uint256(REGISTER);
         f[2] = 4;
         f[3] = REGISTRY;
-        f[4] = block.timestamp;
-        f[5] = pool.registrationScope(block.timestamp / 7 days);
+        // vm.getBlockTimestamp: under via_ir, block.timestamp may be read before a vm.warp.
+        uint256 now_ = vm.getBlockTimestamp();
+        f[4] = now_;
+        f[5] = pool.registrationScope(now_ / 7 days);
         f[6] = nullifier;
         f[7] = leaf;
         f[8] = expiry;
@@ -311,7 +271,7 @@ contract EmitV2PoolTest is Test {
 
     /// The last second of the current epoch.
     function epochEnd() internal view returns (uint256) {
-        return (block.timestamp / 7 days + 1) * 7 days - 1;
+        return (vm.getBlockTimestamp() / 7 days + 1) * 7 days - 1;
     }
 
     function registerOk(uint256 leaf, uint256 nullifier) internal {
@@ -376,11 +336,45 @@ contract EmitV2PoolTest is Test {
         registerOk(3, 4);
     }
 
+    /// In the epoch's last day a holder registers for the next epoch, until its end.
+    function test_register_ahead_in_the_last_day() public {
+        uint256 end = epochEnd();
+        uint256 nextEnd = end + 7 days;
+        uint256[] memory f;
+
+        // Before the last day, the next epoch's scope is refused.
+        f = registration(1, 2, nextEnd);
+        f[5] = pool.registrationScope(vm.getBlockTimestamp() / 7 days + 1);
+        MockVerifier(VERIFY).set(f, false);
+        vm.expectRevert(EmitV2Pool.WrongScope.selector);
+        pool.register(hex"00");
+
+        vm.warp(end + 1 - 1 days);
+        f = registration(1, 2, nextEnd + 1);
+        f[5] = pool.registrationScope(vm.getBlockTimestamp() / 7 days + 1);
+        MockVerifier(VERIFY).set(f, false);
+        vm.expectRevert(EmitV2Pool.ExpiryOutOfRange.selector);
+        pool.register(hex"00");
+
+        f[8] = nextEnd;
+        MockVerifier(VERIFY).set(f, false);
+        vm.expectEmit(address(pool));
+        emit EmitV2Pool.IdentityRegistered(bytes32(uint256(1)), 0, nextEnd);
+        pool.register(hex"00");
+
+        // The current epoch's scope still works (another nullifier); the next one's is used up.
+        registerOk(3, 4);
+        vm.warp(end + 1);
+        MockVerifier(VERIFY).set(registration(5, 2, nextEnd), false);
+        vm.expectRevert(EmitV2Pool.AlreadyRegistered.selector);
+        pool.register(hex"00");
+    }
+
     function test_register_takes_only_the_register_pipeline() public {
         // A transfer proof (another pipeline's fields) is refused: the verifier is asked for REGISTER and the
         // proof's pipeline root must be REGISTER.
         uint256[] memory f = registration(1, 2, epochEnd());
-        f[1] = uint256(PIPELINE);
+        f[1] = uint256(MEMBER);
         MockVerifier(VERIFY).set(f, false);
         vm.expectRevert(abi.encodeWithSelector(EmitV2Pool.OutputMismatch.selector, "pipeline root"));
         pool.register(hex"00");
@@ -391,25 +385,9 @@ contract EmitV2PoolTest is Test {
         pool.register(hex"00");
     }
 
-    function member(uint256 vIn, uint256 vOut, uint256 fee, uint256 salt) internal view returns (Call memory c) {
-        c = call(vIn, vOut, fee, salt);
-        c.pipeline = MEMBER;
-    }
-
-    function test_member_transfer_deposits_and_withdraws() public {
-        registerOk(0x1eaf, 0xd0c);
-        Call memory c = member(100 ether, 0, 0, 1);
-        send(c, fieldsOf(c), 100 ether);
-        assertEq(pool.nextIndex(), 2);
-        c = member(0, 30 ether, 1 ether, 2);
-        send(c, fieldsOf(c), 0);
-        assertEq(payout.balance, 30 ether);
-        assertEq(producer.balance, 1 ether);
-    }
-
     function test_member_transfer_checks() public {
         registerOk(0x1eaf, 0xd0c);
-        Call memory c = member(1 ether, 0, 0, 1);
+        Call memory c = call(1 ether, 0, 0, 1);
 
         uint256[] memory f = fieldsOf(c);
         f[3] = 0x404;
@@ -422,6 +400,12 @@ contract EmitV2PoolTest is Test {
         f[4] = block.timestamp + 2 days;
         MockVerifier(VERIFY).set(f, false);
         vm.expectRevert(EmitV2Pool.DateOutOfRange.selector);
+        pool.transact{value: 1 ether}(c.pipeline, c.root, c.n, c.c, c.vIn, c.vOut, c.fee, c.payout, ct, hex"00");
+
+        f = fieldsOf(c);
+        f[0] ^= 1;
+        MockVerifier(VERIFY).set(f, false);
+        vm.expectRevert(abi.encodeWithSelector(EmitV2Pool.OutputMismatch.selector, "deployment root"));
         pool.transact{value: 1 ether}(c.pipeline, c.root, c.n, c.c, c.vIn, c.vOut, c.fee, c.payout, ct, hex"00");
 
         // Every transfer field is read at member_transfer's offsets.
@@ -437,30 +421,29 @@ contract EmitV2PoolTest is Test {
         }
     }
 
-    function test_an_old_identity_root_stays_valid_in_the_ring() public {
+    function test_an_old_identity_root_stays_valid() public {
         registerOk(1, 1);
         uint256 first = pool.identities().currentRoot();
         registerOk(2, 2);
-        Call memory c = member(1 ether, 0, 0, 1);
+        Call memory c = call(1 ether, 0, 0, 1);
         uint256[] memory f = fieldsOf(c);
         f[3] = first;
         send(c, f, 1 ether);
     }
 
-    function test_transact_takes_only_the_transfer_pipelines() public {
+    function test_transact_takes_only_member_transfer() public {
         Call memory c = call(1 ether, 0, 0, 1);
         c.pipeline = REGISTER;
         MockVerifier(VERIFY).set(fieldsOf(c), false);
         vm.expectRevert(EmitV2Pool.UnknownPipeline.selector);
         pool.transact{value: 1 ether}(c.pipeline, c.root, c.n, c.c, c.vIn, c.vOut, c.fee, c.payout, ct, hex"00");
 
-        // A full-passport proof sent as a member transfer: the pipeline root differs.
+        // Another pipeline's proof sent as a member transfer: the pipeline root differs.
         c = call(1 ether, 0, 0, 1);
         uint256[] memory f = fieldsOf(c);
-        c.pipeline = MEMBER;
-        f[1] = uint256(PIPELINE);
+        f[1] = uint256(bytes32(uint256(0xa1)));
         MockVerifier(VERIFY).set(f, false);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(EmitV2Pool.OutputMismatch.selector, "pipeline root"));
         pool.transact{value: 1 ether}(c.pipeline, c.root, c.n, c.c, c.vIn, c.vOut, c.fee, c.payout, ct, hex"00");
     }
 

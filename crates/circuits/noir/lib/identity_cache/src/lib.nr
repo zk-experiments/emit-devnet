@@ -13,7 +13,7 @@
 mod tests;
 
 use channel::payload::commit;
-use eid_steps::document::{DG1_MAX, PAYLOAD_FIELDS, parse_dg1, plaintext};
+use eid_steps::document::{DG1_MAX, parse_dg1, PAYLOAD_FIELDS, plaintext};
 use emit::{h, holder_tag, merkle_root, PK, TREE_DEPTH};
 
 /// "emit-v2/identity/v2" as a big-endian integer (v2: the blinded leaf).
@@ -26,7 +26,9 @@ pub global MEMBER_FIELDS: u32 = 4;
 
 /// The identity tree's leaf: `H(IDENTITY, H(PK, sk), H(payload), expiry, blinding)`.
 pub fn leaf(sk: Field, payload: [Field; PAYLOAD_FIELDS], expiry: u64, blinding: Field) -> Field {
-    h([IDENTITY, h([PK, sk]), h(payload), expiry as Field, blinding])
+    h(
+        [IDENTITY, h([PK, sk]), h(payload), expiry as Field, blinding],
+    )
 }
 
 /// Registers the holder of `sk` with the document whose DG1 (`dg1`, zero-padded) the previous

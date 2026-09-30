@@ -15,5 +15,15 @@ fn main(
     outs: [OutNote; 2],
     note_salt: Field,
 ) -> return_data [Field; TRANSFER_HOLDER_FIELDS] {
-    transfer_holder(cid, root, v_in, v_out, fee, payout_recipient, ins, outs, note_salt)
+    transfer_holder(
+        cid,
+        root,
+        v_in,
+        v_out,
+        fee,
+        payout_recipient,
+        ins,
+        outs,
+        note_salt,
+    )
 }
