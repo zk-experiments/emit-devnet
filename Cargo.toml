@@ -19,9 +19,9 @@ noir-zk-codegen = "=0.3.0"
 eid-circuits = { git = "https://github.com/zk-experiments/eid-circuits", tag = "v0.8.0", features = ["packs", "http"] }
 eid-prover = { git = "https://github.com/zk-experiments/eid-circuits", tag = "v0.8.0" }
 csca-registry = { git = "https://github.com/zk-experiments/csca-registry", tag = "v0.3.1" }
-# The channel layer: zk-encryption v0.1.0 as PR #1 moves it onto noir-zk 0.3.0 (branch
-# build/noir-zk-0.3.0; the circuits and their pins are v0.1.0's, bytecode bundled).
-zk-encryption-circuits = { git = "https://github.com/zk-experiments/zk-encryption", rev = "8696562", features = ["serde"] }
+# The channel layer: zk-encryption v0.1.1 (on noir-zk 0.3.0; its frozen registry is still
+# zk-encryption@0.1.0's: the circuits, their pins and family roots unchanged; bytecode bundled).
+zk-encryption-circuits = { git = "https://github.com/zk-experiments/zk-encryption", tag = "v0.1.1", features = ["serde"] }
 emit-devnet-circuits = { path = "crates/circuits" }
 ark-ff = "0.6"
 hex = "0.4"

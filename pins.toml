@@ -20,10 +20,12 @@ register = "0x15c06b7f80000624cd9456db6fae7ddefa38c988dcdb265bf035816c45482247"
 member = "0x180deeffbc118baf6fc3585c1d9a935c598a636f7d06604082550c99ec2cce09"
 
 [zk-encryption]
-# v0.1.0's circuits (families and pins unchanged), consumed from PR #1's branch on noir-zk 0.3.0.
+# Release v0.1.1 (git tag, on noir-zk 0.3.0). Its frozen registry is still zk-encryption@0.1.0's
+# (the [library] its family roots commit to): the release's catalog lists the same roots.
+release = "0.1.1"
 library = "zk-encryption@0.1.0"
-catalog = "https://circuits.zk-experiments.dev/zk-encryption/0.1.0/catalog.json"
-catalog_sha256 = "bbf6cd45d558dca42c6e8999a60cc89e3aa0e956a99263e2a74ea4c4ebd79153"
+catalog = "https://circuits.zk-experiments.dev/zk-encryption/0.1.1/catalog.json"
+catalog_sha256 = "d0ff52a1dce5d4db7cdea92c2398a3c8ce28f67f4b8ae77bf9cb2bfae66643b5"
 
 [eid]
 # The identity layer, v0.8.0: its DSC, SOD and document steps from the release's packs.

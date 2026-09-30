@@ -38,6 +38,9 @@ pub struct Emit {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ZkEncryption {
+    /// The release (crate tag and catalog version).
+    pub release: String,
+    /// Its frozen registry's library, which its family roots commit to.
     pub library: String,
     pub catalog: String,
     pub catalog_sha256: String,
@@ -184,7 +187,10 @@ impl Pins {
 
         // The layers compiled in are the pinned versions.
         check(
-            &format!("channel layer {}", self.zk_encryption.library),
+            &format!(
+                "channel layer {} (release {})",
+                self.zk_encryption.library, self.zk_encryption.release
+            ),
             lib(zk_encryption_circuits::circuits::LIBRARY) == self.zk_encryption.library,
             &mut r,
         )?;
@@ -237,19 +243,16 @@ impl Pins {
             return Ok(r);
         }
 
-        // zk-encryption's published catalog: its families (library, version, members) are the
-        // compiled-in ones. Its `kernels` entry names the noir-zk it was released against; the
+        // zk-encryption's published catalog: the pinned release, and its families (roots over
+        // library, version and members) are the compiled-in ones. Its `kernels` entry names the noir-zk it was released against; the
         // kernels folded here are noir-zk's own, pinned above.
         let z = &self.zk_encryption;
         let cat = json(
             &fetch_pinned(&z.catalog, &z.catalog_sha256)?,
             "channel catalog",
         )?;
-        let mut same = format!(
-            "{}@{}",
-            cat["library"].as_str().unwrap_or(""),
-            cat["version"].as_str().unwrap_or("")
-        ) == z.library;
+        let mut same = cat["library"].as_str() == z.library.split('@').next()
+            && cat["version"].as_str() == Some(z.release.as_str());
         for f in cat["families"].as_array().into_iter().flatten() {
             let id = f["id"].as_str().unwrap_or("");
             let name = id.rsplit('/').next().unwrap_or("");

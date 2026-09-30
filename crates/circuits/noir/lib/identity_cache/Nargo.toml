@@ -6,6 +6,6 @@ compiler_version = ">=1.0.0"
 
 [dependencies]
 emit = { path = "../emit" }
-channel = { git = "https://github.com/zk-experiments/zk-encryption", tag = "v0.1.0", directory = "noir/lib/channel" }
+channel = { git = "https://github.com/zk-experiments/zk-encryption", tag = "v0.1.1", directory = "noir/lib/channel" }
 # The document step's DG1 parsing and payload (eid-circuits v0.8.0, the release the pipelines fold).
 eid_steps = { git = "https://github.com/zk-experiments/eid-circuits", tag = "v0.8.0", directory = "noir/lib/steps" }
