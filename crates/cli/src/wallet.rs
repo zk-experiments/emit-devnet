@@ -1,21 +1,25 @@
 //! A user's wallet: the passport it proves with, the shielded key, the receiver (keys, bundle,
-//! channels), the contacts (one `Sender` per accepted bundle), the notes, and the note tree
-//! rebuilt from the pool's events. Persisted as JSON (`<home>/<name>.json`), the channel states
+//! channels), the contacts (one `Sender` per accepted bundle), the notes, the note tree and the
+//! identity tree rebuilt from the pool's events, and its registration in the identity cache. Persisted as JSON (`<home>/<name>.json`), the channel states
 //! through zk-encryption's serde feature; written before every broadcast (the advanced chain key
 //! must never be reused).
 
 use crate::chain::{self, TxEvents};
 use crate::document::{self, Document};
 use crate::emit::{InNote, OutNote, Transfer};
+use crate::identity::{self, Registration};
 use crate::tree::Tree;
 use alloy::primitives::Address;
 use alloy::providers::Provider;
 use emit_devnet_circuits::circuits::DEPLOYMENT;
 use emit_devnet_circuits::circuits::families::{
-    KernelStepDocument, KernelStepDsc, KernelStepEnvelope, KernelStepNoteEnvelope,
-    KernelStepSession, KernelStepSod, KernelStepTransfer,
+    KernelStepDocument, KernelStepDsc, KernelStepEnvelope, KernelStepMember,
+    KernelStepNoteEnvelope, KernelStepRegister, KernelStepSession, KernelStepSod,
+    KernelStepTransfer, KernelStepTransferHolder,
 };
-use emit_devnet_circuits::circuits::pipelines::identity_transfer;
+use emit_devnet_circuits::circuits::pipelines::{
+    identity_register, identity_transfer, member_transfer,
+};
 use noir_zk_core::StepFamily;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -70,6 +74,12 @@ pub struct Wallet {
     /// This wallet's outputs of transfers it sent, until the pool appends them.
     pub pending: Vec<Note>,
     pub leaves: Vec<String>,
+    /// The registration in the identity cache, if any.
+    #[serde(default)]
+    pub identity: Option<Registration>,
+    /// The identity tree's leaves (the pool's IdentityRegistered events).
+    #[serde(default)]
+    pub identity_leaves: Vec<String>,
     /// The last block synced.
     pub synced: u64,
 }
@@ -91,8 +101,10 @@ pub struct Plan {
     pub to: Option<String>,
 }
 
-/// Timings and gas of one transact.
+/// Timings and gas of one transact or register.
 pub struct Receipt {
+    /// The pipeline proved.
+    pub pipeline: &'static str,
     pub prove_s: f64,
     pub verify_ms: f64,
     pub proof_bytes: usize,
@@ -132,6 +144,22 @@ impl Wallet {
         Tree::from_leaves(self.leaves.iter().map(|l| Fr::from_hex(l)).collect())
     }
 
+    pub fn identity_tree(&self) -> Tree {
+        Tree::from_leaves(
+            self.identity_leaves
+                .iter()
+                .map(|l| Fr::from_hex(l))
+                .collect(),
+        )
+    }
+
+    /// The registration, if the pool appended it and it is still valid at `now`.
+    pub fn live_registration(&self, now: u64) -> Option<&Registration> {
+        self.identity
+            .as_ref()
+            .filter(|r| r.index.is_some() && r.expiry >= now)
+    }
+
     pub fn balance(&self) -> u128 {
         self.notes.iter().map(Note::value).sum()
     }
@@ -144,6 +172,19 @@ impl Wallet {
     /// keeps this wallet's pending outputs, and scans the Envelope for a note addressed here.
     /// Returns what was received (value, sender's MRZ, handshake or ratchet index).
     pub fn apply(&mut self, cid: Fr, t: &TxEvents) -> eyre::Result<Option<(u128, String, String)>> {
+        for (leaf, i, _) in &t.identities {
+            eyre::ensure!(
+                *i == self.identity_leaves.len() as u64,
+                "identity leaf {i} out of order (the wallet has {}): resync from scratch",
+                self.identity_leaves.len()
+            );
+            self.identity_leaves.push(leaf.hex());
+            if let Some(r) = &mut self.identity
+                && r.leaf == leaf.hex()
+            {
+                r.index = Some(*i);
+            }
+        }
         for (c, i) in &t.commitments {
             eyre::ensure!(
                 *i == self.leaves.len() as u64,
@@ -291,8 +332,8 @@ impl Wallet {
             .collect();
         let mut ins = ins.into_iter();
         let ins = [
-            ins.next().unwrap_or_else(InNote::dummy),
-            ins.next().unwrap_or_else(InNote::dummy),
+            ins.next().unwrap_or_else(|| InNote::dummy(sk)),
+            ins.next().unwrap_or_else(|| InNote::dummy(sk)),
         ];
         let outs = plan.outs.map(|(pk, v, _)| OutNote::to(pk, v));
         // The channel: advancing it changes the state, which is written before broadcasting.
@@ -329,54 +370,117 @@ impl Wallet {
         }
         self.save(&ctx.home)?;
 
-        // Prove: the passport's eid steps, the session, DG1 sealed, the transfer, the note sealed.
         let doc = document::by_name(&self.document)?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs();
-        let reg = ctx.registry()?;
-        let w = doc.witnesses(reg, now, t.ctx, t.channel.s)?;
-        let pool = ctx.pool(&w.labels)?;
-        let artifacts = pool.merged();
-        let start = Instant::now();
         let e = |what: &str| {
             let what = what.to_string();
             move |err: noir_zk_core::Error| eyre::eyre!("{what}: {err}")
         };
-        let (proof, _) = identity_transfer::fold(&artifacts)
-            .map_err(e("pipeline"))?
-            .app(KernelStepDsc::select(&w.labels[0], w.dsc).map_err(e("dsc"))?)
-            .map_err(e("dsc"))?
-            .app(KernelStepSod::select(&w.labels[1], w.sod).map_err(e("sod"))?)
-            .map_err(e("sod"))?
-            .app(KernelStepDocument::select(&w.labels[2], w.document).map_err(e("document"))?)
-            .map_err(e("document"))?
-            .app(
-                KernelStepSession::select("channel_session", t.session_inputs())
-                    .map_err(e("session"))?,
-            )
-            .map_err(e("session"))?
-            .app(
-                KernelStepEnvelope::select("channel_envelope", w.envelope)
-                    .map_err(e("envelope"))?,
-            )
-            .map_err(e("envelope"))?
-            .app(KernelStepTransfer::select("transfer", t.inputs()).map_err(e("transfer"))?)
-            .map_err(e("transfer"))?
-            .app(
-                KernelStepNoteEnvelope::select("channel_envelope", t.note_inputs())
-                    .map_err(e("note"))?,
-            )
-            .map_err(e("note"))?
-            .hiding(&DEPLOYMENT)
-            .map_err(e("prove"))?;
-        let prove_s = start.elapsed().as_secs_f64();
+        let registration = self
+            .live_registration(now)
+            .filter(|_| !ctx.full_passport)
+            .cloned();
+        let (pipeline, name, proof, prove_s) = match registration {
+            // A registered holder: membership in the identity tree, the session, DG1 (committed
+            // afresh) sealed, the transfer bound to the registered key, the note sealed.
+            Some(r) => {
+                let itree = self.identity_tree();
+                let salt = Rng::field();
+                let member = identity::member_inputs(
+                    itree.root(),
+                    now,
+                    sk,
+                    &doc.dg1,
+                    salt,
+                    r.expiry,
+                    &itree.path(r.index.expect("live")),
+                    t.ctx,
+                );
+                let pool = ctx.pool(&[])?;
+                let artifacts = pool.merged();
+                let start = Instant::now();
+                let (proof, _) = member_transfer::fold(&artifacts)
+                    .map_err(e("pipeline"))?
+                    .app(KernelStepMember::select("identity_member", member).map_err(e("member"))?)
+                    .map_err(e("member"))?
+                    .app(
+                        KernelStepSession::select("channel_session", t.session_inputs())
+                            .map_err(e("session"))?,
+                    )
+                    .map_err(e("session"))?
+                    .app(
+                        KernelStepEnvelope::select(
+                            "channel_envelope",
+                            doc.envelope(salt, t.ctx, t.channel.s),
+                        )
+                        .map_err(e("envelope"))?,
+                    )
+                    .map_err(e("envelope"))?
+                    .app(
+                        KernelStepTransferHolder::select("transfer_holder", t.inputs())
+                            .map_err(e("transfer"))?,
+                    )
+                    .map_err(e("transfer"))?
+                    .app(
+                        KernelStepNoteEnvelope::select("channel_envelope", t.note_inputs())
+                            .map_err(e("note"))?,
+                    )
+                    .map_err(e("note"))?
+                    .hiding(&DEPLOYMENT)
+                    .map_err(e("prove"))?;
+                let prove_s = start.elapsed().as_secs_f64();
+                (member_transfer::ROOT, "member_transfer", proof, prove_s)
+            }
+            // The passport's eid steps, the session, DG1 sealed, the transfer, the note sealed.
+            None => {
+                let w = doc.witnesses(ctx.registry()?, now, t.ctx, t.channel.s)?;
+                let pool = ctx.pool(&w.labels)?;
+                let artifacts = pool.merged();
+                let start = Instant::now();
+                let (proof, _) = identity_transfer::fold(&artifacts)
+                    .map_err(e("pipeline"))?
+                    .app(KernelStepDsc::select(&w.labels[0], w.dsc).map_err(e("dsc"))?)
+                    .map_err(e("dsc"))?
+                    .app(KernelStepSod::select(&w.labels[1], w.sod).map_err(e("sod"))?)
+                    .map_err(e("sod"))?
+                    .app(
+                        KernelStepDocument::select(&w.labels[2], w.document)
+                            .map_err(e("document"))?,
+                    )
+                    .map_err(e("document"))?
+                    .app(
+                        KernelStepSession::select("channel_session", t.session_inputs())
+                            .map_err(e("session"))?,
+                    )
+                    .map_err(e("session"))?
+                    .app(
+                        KernelStepEnvelope::select("channel_envelope", w.envelope)
+                            .map_err(e("envelope"))?,
+                    )
+                    .map_err(e("envelope"))?
+                    .app(
+                        KernelStepTransfer::select("transfer", t.inputs())
+                            .map_err(e("transfer"))?,
+                    )
+                    .map_err(e("transfer"))?
+                    .app(
+                        KernelStepNoteEnvelope::select("channel_envelope", t.note_inputs())
+                            .map_err(e("note"))?,
+                    )
+                    .map_err(e("note"))?
+                    .hiding(&DEPLOYMENT)
+                    .map_err(e("prove"))?;
+                let prove_s = start.elapsed().as_secs_f64();
+                (identity_transfer::ROOT, "identity_transfer", proof, prove_s)
+            }
+        };
         let proof = proof.to_bytes();
         let proof_bytes = proof.len();
         // What ZK_VERIFY will do, locally first (and timed: the precompile's gas is priced on it).
         let start = Instant::now();
-        emit_devnet_circuits::verify(&identity_transfer::ROOT, &proof)
-            .map_err(e("local verification"))?;
+        emit_devnet_circuits::verify(&pipeline, &proof).map_err(e("local verification"))?;
         let verify_ms = start.elapsed().as_secs_f64() * 1e3;
 
         let signer: alloy::signers::local::PrivateKeySigner = self.key.parse()?;
@@ -388,6 +492,7 @@ impl Wallet {
             &sender,
             ctx.pool_address()?,
             chain::Transact {
+                pipeline,
                 root,
                 nullifiers: t.nullifiers,
                 commitments: t.commitments,
@@ -421,6 +526,99 @@ impl Wallet {
         };
         self.sync(p, ctx.pool_address()?, &ctx.home).await?;
         Ok(Receipt {
+            pipeline: name,
+            prove_s,
+            verify_ms,
+            proof_bytes,
+            gas_used: sent.gas_used,
+            calldata: sent.calldata,
+            block: sent.block,
+            tx: sent.tx.to_string(),
+        })
+    }
+
+    /// Registers this wallet's key with its passport in the pool's identity cache: proves the
+    /// identity_register pipeline once (the document in the scope of this epoch, the leaf valid
+    /// until the epoch ends or the passport expires, whichever is first) and sends `register`.
+    pub async fn register(&mut self, ctx: &crate::Ctx, p: &impl Provider) -> eyre::Result<Receipt> {
+        let pool_address = ctx.pool_address()?;
+        let c = chain::EmitV2Pool::new(pool_address, p);
+        let epoch_len: u64 = c.IDENTITY_EPOCH().call().await?.to();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+        let epoch = now / epoch_len;
+        let scope = c
+            .registrationScope(alloy::primitives::U256::from(epoch))
+            .call()
+            .await?;
+        let doc = document::by_name(&self.document)?;
+        let expiry = doc.expires()?.min((epoch + 1) * epoch_len - 1);
+        let (w, salt) = doc.eid(ctx.registry()?, now, &format!("{scope:#x}"))?;
+        let labels = [w.selection.dsc, w.selection.sod, w.selection.document];
+        let pool = ctx.pool(&labels)?;
+        let artifacts = pool.merged();
+        let sk = self.sk();
+        let e = |what: &str| {
+            let what = what.to_string();
+            move |err: noir_zk_core::Error| eyre::eyre!("{what}: {err}")
+        };
+        let start = Instant::now();
+        let (proof, _) = identity_register::fold(&artifacts)
+            .map_err(e("pipeline"))?
+            .app(KernelStepDsc::select(&labels[0], w.dsc).map_err(e("dsc"))?)
+            .map_err(e("dsc"))?
+            .app(KernelStepSod::select(&labels[1], w.sod).map_err(e("sod"))?)
+            .map_err(e("sod"))?
+            .app(KernelStepDocument::select(&labels[2], w.document).map_err(e("document"))?)
+            .map_err(e("document"))?
+            .app(
+                KernelStepRegister::select(
+                    "register",
+                    identity::register_inputs(salt, &doc.dg1, sk, expiry),
+                )
+                .map_err(e("register"))?,
+            )
+            .map_err(e("register"))?
+            .hiding(&DEPLOYMENT)
+            .map_err(e("prove"))?;
+        let prove_s = start.elapsed().as_secs_f64();
+        let proof = proof.to_bytes();
+        let proof_bytes = proof.len();
+        let start = Instant::now();
+        emit_devnet_circuits::verify(&identity_register::ROOT, &proof)
+            .map_err(e("local verification"))?;
+        let verify_ms = start.elapsed().as_secs_f64() * 1e3;
+
+        let leaf = identity::leaf(sk, &doc.dg1, expiry).hex();
+        self.identity = Some(Registration {
+            leaf: leaf.clone(),
+            index: None,
+            salt: salt.hex(),
+            expiry,
+        });
+        self.save(&ctx.home)?;
+        let signer: alloy::signers::local::PrivateKeySigner = self.key.parse()?;
+        let sender = alloy::providers::ProviderBuilder::new()
+            .wallet(signer)
+            .connect(&ctx.rpc)
+            .await?;
+        let sent = chain::register(&sender, pool_address, proof).await;
+        let sent = match sent {
+            Ok(s) => s,
+            Err(err) => {
+                self.identity = None;
+                self.save(&ctx.home)?;
+                return Err(err);
+            }
+        };
+        self.sync(p, pool_address, &ctx.home).await?;
+        eyre::ensure!(
+            self.live_registration(now).is_some(),
+            "the pool registered a leaf other than the wallet's {leaf}"
+        );
+        Ok(Receipt {
+            pipeline: "identity_register",
             prove_s,
             verify_ms,
             proof_bytes,
@@ -460,6 +658,8 @@ impl Wallet {
             notes: vec![],
             pending: vec![],
             leaves: vec![],
+            identity: None,
+            identity_leaves: vec![],
             synced: 0,
         })
     }

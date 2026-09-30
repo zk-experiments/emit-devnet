@@ -65,10 +65,14 @@ pub fn registry_root(reg: &Registry) -> Fr {
 }
 
 impl Document {
-    /// The step inputs for one transfer (fresh salts): eid's DSC, SOD and document steps
-    /// (scope 0, the DG1 salt), and the channel envelope app sealing DG1 under the chain key `s`
-    /// in the transfer's context.
-    pub fn witnesses(&self, reg: &Registry, date: u64, ctx: Fr, s: Fr) -> eyre::Result<Witnesses> {
+    /// eid's DSC, SOD and document steps' inputs (fresh salts) at `date` in nullifier `scope`
+    /// ("0" for none), and the salt of the document's DG1 commitment.
+    pub fn eid(
+        &self,
+        reg: &Registry,
+        date: u64,
+        scope: &str,
+    ) -> eyre::Result<(eid_prover::Witnesses, Fr)> {
         let dg1_salt = Rng::field();
         let w = eid_prover::witnesses(
             reg,
@@ -79,23 +83,42 @@ impl Document {
                 sod_salt: Rng::field().hex(),
                 dg1_salt: dg1_salt.hex(),
                 date: date as i64,
-                scope: "0".into(),
+                scope: scope.into(),
             },
         )
         .map_err(|e| eyre::eyre!("{}: {e}", self.name))?;
+        Ok((w, dg1_salt))
+    }
+
+    /// The step inputs for one transfer: eid's steps (scope 0), and the channel envelope app
+    /// sealing DG1 under the chain key `s` in the transfer's context.
+    pub fn witnesses(&self, reg: &Registry, date: u64, ctx: Fr, s: Fr) -> eyre::Result<Witnesses> {
+        let (w, dg1_salt) = self.eid(reg, date, "0")?;
         Ok(Witnesses {
             dsc: w.dsc,
             sod: w.sod,
             document: w.document,
-            envelope: zk_encryption_circuits::envelope::inputs(
-                Ratchet::key_payload(),
-                &self.dg1.to_payload(),
-                dg1_salt,
-                ctx,
-                s,
-            ),
+            envelope: self.envelope(dg1_salt, ctx, s),
             labels: [w.selection.dsc, w.selection.sod, w.selection.document],
         })
+    }
+
+    /// The DG1 envelope app's inputs: DG1's payload, committed under `salt`, sealed under the
+    /// chain key `s` in context `ctx`.
+    pub fn envelope(&self, salt: Fr, ctx: Fr, s: Fr) -> String {
+        zk_encryption_circuits::envelope::inputs(
+            Ratchet::key_payload(),
+            &self.dg1.to_payload(),
+            salt,
+            ctx,
+            s,
+        )
+    }
+
+    /// The passport's date of expiry (its last second, unix time).
+    pub fn expires(&self) -> eyre::Result<u64> {
+        let d = eid_prover::mrz::parse_dg1(&self.dg1.0).map_err(|e| eyre::eyre!("DG1: {e}"))?;
+        Ok(d.expires as u64)
     }
 
     /// The MRZ (DG1 without its 5-byte tag and length header).

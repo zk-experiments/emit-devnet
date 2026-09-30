@@ -3,6 +3,7 @@
 mod chain;
 mod document;
 mod emit;
+mod identity;
 mod tree;
 mod wallet;
 
@@ -58,6 +59,9 @@ struct Cli {
     wallet: Option<String>,
     #[arg(long, env = "ZKPOOL_CHAIN_ID", default_value_t = 3607, global = true)]
     chain_id: u64,
+    /// Prove the passport (identity_transfer) even with a live registration (member_transfer).
+    #[arg(long, global = true)]
+    full_passport: bool,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -147,6 +151,13 @@ enum IdentityCmd {
     },
     /// Prints the receiver bundle (base64url).
     Show,
+    /// Proves the passport once and registers the shielded key in the pool's identity cache:
+    /// later transactions prove membership (member_transfer) until the registration expires.
+    Register {
+        /// Register again even if the current registration is still live.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -165,6 +176,7 @@ pub struct Ctx {
     pub home: PathBuf,
     pub rpc: String,
     pub pool: Option<Address>,
+    pub full_passport: bool,
     registry: OnceLock<csca_registry::output::Registry>,
     artifacts: OnceLock<Pool>,
 }
@@ -184,7 +196,7 @@ impl Ctx {
 
     /// The proving pool for these eid circuits: the pins checked (catalogs fetched), then eid's
     /// packs downloaded if not cached.
-    pub fn pool(&self, labels: &[String; 3]) -> eyre::Result<&Pool> {
+    pub fn pool(&self, labels: &[String]) -> eyre::Result<&Pool> {
         if self.artifacts.get().is_none() {
             let pins = emit_devnet_circuits::pins::Pins::embedded();
             let checks = pins.check(false).map_err(|e| eyre::eyre!(e))?;
@@ -219,8 +231,8 @@ fn now() -> u64 {
 
 fn report(what: &str, r: &wallet::Receipt) {
     println!(
-        "{what}: proved in {:.2} s ({} B proof, verified locally in {:.0} ms), transact gas {} ({} B calldata), block {}, tx {}",
-        r.prove_s, r.proof_bytes, r.verify_ms, r.gas_used, r.calldata, r.block, r.tx
+        "{what}: {} proved in {:.2} s ({} B proof, verified locally in {:.0} ms), gas {} ({} B calldata), block {}, tx {}",
+        r.pipeline, r.prove_s, r.proof_bytes, r.verify_ms, r.gas_used, r.calldata, r.block, r.tx
     );
 }
 
@@ -234,6 +246,7 @@ async fn main() -> eyre::Result<()> {
         home: home.clone(),
         rpc: cli.rpc.clone(),
         pool: cli.pool,
+        full_passport: cli.full_passport,
         registry: OnceLock::new(),
         artifacts: OnceLock::new(),
     };
@@ -261,6 +274,14 @@ async fn main() -> eyre::Result<()> {
             println!(
                 "transfer_only     {}",
                 emit_devnet_circuits::hex32(&pipelines::transfer_only::ROOT)
+            );
+            println!(
+                "identity_register {}",
+                emit_devnet_circuits::hex32(&pipelines::identity_register::ROOT)
+            );
+            println!(
+                "member_transfer   {}",
+                emit_devnet_circuits::hex32(&pipelines::member_transfer::ROOT)
             );
             println!("fixtures_registry {}", document::registry_root(reg).hex());
             println!("csca_registry     {} ({})", pins.csca.root, pins.csca.tag);
@@ -305,6 +326,31 @@ async fn main() -> eyre::Result<()> {
         }
         Cmd::Identity(IdentityCmd::Show) => {
             println!("{}", Wallet::load(&home, &name()?)?.bundle);
+        }
+        Cmd::Identity(IdentityCmd::Register { force }) => {
+            let (p, mut w) = (provider().await?, Wallet::load(&home, &name()?)?);
+            w.sync(&p, ctx.pool_address()?, &home).await?;
+            if let Some(r) = w.live_registration(now())
+                && !force
+            {
+                eyre::bail!(
+                    "{} is registered until {} (leaf {}); --force to register again",
+                    w.name,
+                    r.expiry,
+                    r.index.unwrap_or_default()
+                );
+            }
+            let r = w.register(&ctx, &p).await?;
+            let reg = w.identity.as_ref().expect("registered");
+            report(
+                &format!(
+                    "{}: registered (identity leaf {}, valid until {})",
+                    w.name,
+                    reg.index.unwrap_or_default(),
+                    reg.expiry
+                ),
+                &r,
+            );
         }
         Cmd::Contact(ContactCmd::Add {
             name: contact,

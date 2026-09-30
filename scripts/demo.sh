@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # The whole system end to end: builds, starts the devnet node, deploys the pool, and runs Alice
-# (US passport) and Bob (DE passport) through identities, bundles, a deposit, a handshake and a
-# ratchet transfer, Bob's listener, a split, a merge and a withdrawal, checking the balances.
+# (US passport) and Bob (DE passport) through identities, bundles, a registration each in the
+# identity cache (the passport proved once), then a deposit, a handshake and a ratchet transfer,
+# Bob's listener, a split, a merge and a withdrawal, each proving membership (member_transfer)
+# except the ratchet, which proves the passport again (identity_transfer) for comparison; checks
+# the balances and prints each step's pipeline, prove time and gas.
 # The prover's own logging (bb) goes to $DEVNET/prover.log.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -24,15 +27,19 @@ step "bundles exchanged: each accepts the other's"
 zk -w alice contact add --name bob --bundle "$(cat "$ZKPOOL_HOME/bob.bundle")"
 zk -w bob contact add --name alice --bundle "$(cat "$ZKPOOL_HOME/alice.bundle")"
 
+step "each registers once in the identity cache (the passport proved once)"
+zk -w alice identity register | tee -a "$DEVNET/tx.log"
+zk -w bob identity register | tee -a "$DEVNET/tx.log"
+
 step "Bob listens (log subscription) while Alice pays"
 zk -w bob listen --until 2 --timeout 900 >"$DEVNET/listen.log" &
 LISTEN=$!
 sleep 2
 
-step "Alice deposits 100, pays Bob 60 (handshake) and 5 (ratchet)"
+step "Alice deposits 100, pays Bob 60 (handshake) and 5 (ratchet, the full passport for comparison)"
 zk -w alice deposit --amount 100 | tee -a "$DEVNET/tx.log"
 zk -w alice transfer --to bob --amount 60 | tee -a "$DEVNET/tx.log"
-zk -w alice transfer --to bob --amount 5 | tee -a "$DEVNET/tx.log"
+zk -w alice transfer --to bob --amount 5 --full-passport | tee -a "$DEVNET/tx.log"
 wait "$LISTEN"
 cat "$DEVNET/listen.log"
 listened=$(cat "$DEVNET/listen.log")
@@ -59,6 +66,11 @@ pool=$(cast balance "$ZKPOOL_POOL" --rpc-url "$ZKPOOL_RPC")
 [ "$pool" = "69950000000000000000" ] || { echo "pool holds $pool wei" >&2; exit 1; }
 echo "pool contract holds 69.95 ETH (= 34.98 + 34.97 shielded)"
 
-step "timings and gas"
-sed -E 's/^([a-z]+: [a-z]+ [^:]*): proved in ([0-9.]+ s).*transact gas ([0-9]+).*/\1 | \2 | \3 gas/' "$DEVNET/tx.log" | grep '|'
+step "timings and gas (pipeline | prove | gas)"
+log=$(cat "$DEVNET/tx.log")
+expect "$log" "registered (identity leaf 0"
+expect "$log" "registered (identity leaf 1"
+[ "$(grep -c ': member_transfer proved' <<<"$log")" = 5 ] || { echo "expected 5 member transfers" >&2; exit 1; }
+[ "$(grep -c ': identity_transfer proved' <<<"$log")" = 1 ] || { echo "expected 1 full transfer" >&2; exit 1; }
+sed -E 's/^([a-z]+: [^:]*): ([a-z_]+) proved in ([0-9.]+ s).*, gas ([0-9]+) .*/\1 | \2 | \3 | \4 gas/' "$DEVNET/tx.log" | grep '|'
 echo; echo "demo ok"

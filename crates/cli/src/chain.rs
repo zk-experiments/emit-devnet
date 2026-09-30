@@ -18,8 +18,12 @@ mod abi {
             event NewNullifier(bytes32 nullifier);
             event NewCommitment(bytes32 commitment, uint256 leafIndex);
             event Envelope(bytes32 cT, bytes32[2] e, bytes32 tag, bytes32 ct, bytes pqCiphertext, bytes32[6] cNote, bytes32[6] cId);
+            event IdentityRegistered(bytes32 leaf, uint256 index, uint256 expiry);
 
-            function transact(bytes32 root, bytes32[2] nullifiers, bytes32[2] commitments, uint256 vPubIn, uint256 vPubOut, uint256 fee, address payout, bytes pqCiphertext, bytes proof) external payable;
+            function transact(bytes32 pipeline, bytes32 root, bytes32[2] nullifiers, bytes32[2] commitments, uint256 vPubIn, uint256 vPubOut, uint256 fee, address payout, bytes pqCiphertext, bytes proof) external payable;
+            function register(bytes proof) external;
+            function registrationScope(uint256 epoch) external view returns (uint256);
+            function IDENTITY_EPOCH() external view returns (uint256);
             function currentRoot() external view returns (uint256);
             function nextIndex() external view returns (uint256);
         }
@@ -45,6 +49,8 @@ pub struct TxEvents {
     pub nullifiers: Vec<Fr>,
     pub commitments: Vec<(Fr, u64)>,
     pub envelope: Option<Envelope>,
+    /// Identity cache registrations: (leaf, index, expiry).
+    pub identities: Vec<(Fr, u64, u64)>,
 }
 
 fn envelope(e: &EmitV2Pool::Envelope) -> eyre::Result<Envelope> {
@@ -102,6 +108,14 @@ pub async fn events(
                 let e = log.log_decode::<EmitV2Pool::Envelope>()?.inner.data;
                 t.envelope = Some(envelope(&e)?);
             }
+            Some(&EmitV2Pool::IdentityRegistered::SIGNATURE_HASH) => {
+                let e = log
+                    .log_decode::<EmitV2Pool::IdentityRegistered>()?
+                    .inner
+                    .data;
+                t.identities
+                    .push((fr(&e.leaf), e.index.to::<u64>(), e.expiry.to::<u64>()));
+            }
             _ => {}
         }
     }
@@ -110,6 +124,8 @@ pub async fn events(
 
 /// The calldata of a transfer and its proof.
 pub struct Transact {
+    /// identity_transfer's or member_transfer's root.
+    pub pipeline: [u8; 32],
     pub root: Fr,
     pub nullifiers: [Fr; 2],
     pub commitments: [Fr; 2],
@@ -132,6 +148,7 @@ pub async fn transact(p: &impl Provider, pool: Address, t: Transact) -> eyre::Re
     let c = EmitV2Pool::new(pool, p);
     let call = c
         .transact(
+            B256::from(t.pipeline),
             b256(&t.root),
             t.nullifiers.map(|n| b256(&n)),
             t.commitments.map(|n| b256(&n)),
@@ -143,22 +160,33 @@ pub async fn transact(p: &impl Provider, pool: Address, t: Transact) -> eyre::Re
             Bytes::from(t.proof),
         )
         .value(U256::from(t.v_in));
+    send(call).await
+}
+
+/// Registers in the identity cache with an identity_register proof.
+pub async fn register(p: &impl Provider, pool: Address, proof: Vec<u8>) -> eyre::Result<Sent> {
+    send(EmitV2Pool::new(pool, p).register(Bytes::from(proof))).await
+}
+
+async fn send<P: Provider, D: alloy::contract::CallDecoder>(
+    call: alloy::contract::CallBuilder<P, D>,
+) -> eyre::Result<Sent> {
     let calldata = call.calldata().len();
     // The estimate runs against the pending block, whose producer may differ from the one that
     // includes the transaction (paying the fee to a fresh coinbase costs 25,000 more): pad it.
     let estimate = call
         .estimate_gas()
         .await
-        .map_err(|e| eyre::eyre!("transact refused: {e}"))?;
+        .map_err(|e| eyre::eyre!("refused: {e}"))?;
     let receipt = call
         .gas(estimate + estimate / 5)
         .send()
         .await
-        .map_err(|e| eyre::eyre!("transact refused: {e}"))?
+        .map_err(|e| eyre::eyre!("refused: {e}"))?
         .get_receipt()
         .await?;
     if !receipt.status() {
-        eyre::bail!("transact reverted in {}", receipt.transaction_hash);
+        eyre::bail!("reverted in {}", receipt.transaction_hash);
     }
     Ok(Sent {
         tx: receipt.transaction_hash,

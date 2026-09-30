@@ -1,8 +1,10 @@
 //! The demo as a test, against a spawned node: `cargo test -- --ignored devnet` (needs forge and
 //! cast on PATH, and the network the first time: eid's packs and Noir source, the catalogs).
-//! Alice (US passport) deposits 100 and pays Bob (DE passport) 60 on the handshake and 5 on the
-//! ratchet; Bob's listener sees both with Alice's MRZ; Bob splits, merges and withdraws 30 to
-//! his EOA; every balance is checked exactly, the EOA's net of the withdrawal's gas.
+//! Alice (US passport) and Bob (DE passport) each register once in the identity cache; Alice
+//! deposits 100 and pays Bob 60 on the handshake (proving membership) and 5 on the ratchet (the
+//! full passport); Bob's listener sees both with Alice's MRZ; Bob splits, merges and withdraws 30
+//! to his EOA (membership); every balance is checked exactly, the EOA's net of the withdrawal's
+//! gas, and each transaction's pipeline.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -146,7 +148,9 @@ fn devnet_end_to_end() {
             DEPLOYER_KEY,
         ])
         .env("DEPLOYMENT_ROOT", field("deployment_root"))
-        .env("PIPELINE_ROOT", field("identity_transfer"))
+        .env("TRANSFER_PIPELINE", field("identity_transfer"))
+        .env("REGISTER_PIPELINE", field("identity_register"))
+        .env("MEMBER_PIPELINE", field("member_transfer"))
         .env(
             "REGISTRY_ROOTS",
             format!("{},{}", field("fixtures_registry"), field("csca_registry")),
@@ -197,6 +201,11 @@ fn devnet_end_to_end() {
         &bundle("alice"),
     ]);
 
+    for n in ["alice", "bob"] {
+        let r = zp(&["-w", n, "identity", "register"]);
+        assert!(r.contains(": identity_register proved"), "{r}");
+    }
+
     // Bob listens while Alice pays.
     let listen = Command::new(&zkpool_bin)
         .args([
@@ -220,7 +229,14 @@ fn devnet_end_to_end() {
         "-w", "alice", "transfer", "--to", "bob", "--amount", "60",
     ]));
     log.push(zp(&[
-        "-w", "alice", "transfer", "--to", "bob", "--amount", "5",
+        "-w",
+        "alice",
+        "transfer",
+        "--to",
+        "bob",
+        "--amount",
+        "5",
+        "--full-passport",
     ]));
     let heard =
         String::from_utf8_lossy(&listen.wait_with_output().expect("listen").stdout).into_owned();
@@ -255,6 +271,23 @@ fn devnet_end_to_end() {
         wei(&cast(&["balance", &pool])),
         69_950_000_000_000_000_000,
         "the pool holds the shielded 69.95"
+    );
+    let pipelines: Vec<_> = log
+        .iter()
+        .map(|l| l.split(" proved").next().and_then(|s| s.rsplit(' ').next()))
+        .collect();
+    assert_eq!(
+        pipelines,
+        [
+            "member_transfer",
+            "member_transfer",
+            "identity_transfer",
+            "member_transfer",
+            "member_transfer",
+            "member_transfer"
+        ]
+        .map(Some),
+        "{log:?}"
     );
     for l in log.iter().flat_map(|s| s.lines()) {
         println!("{l}");

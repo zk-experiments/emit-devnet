@@ -21,10 +21,11 @@ pub struct InNote {
 }
 
 impl InNote {
-    /// A dummy input (value 0, membership skipped) with a fresh unique nullifier.
-    pub fn dummy() -> Self {
+    /// A dummy input (value 0, membership skipped) held by `sk` (transfer_holder has both inputs
+    /// held by one key), with a fresh unique nullifier.
+    pub fn dummy(sk: Fr) -> Self {
         Self {
-            sk: Rng::field(),
+            sk,
             value: 0,
             rho: Rng::field(),
             r: Fr::zero(),
