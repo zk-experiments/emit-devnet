@@ -100,4 +100,71 @@ mod tests {
         let tree = Tree::from_leaves(vec![Fr::from(1u64), l, Fr::from(3u64)]);
         assert_eq!(tree.path(1).root(l), tree.root());
     }
+
+    /// Folds a deposit on member_transfer by `spender` with `registered`'s registration.
+    fn member_deposit(registered: Fr, spender: Fr) -> eyre::Result<Vec<u8>> {
+        use crate::emit::{InNote, OutNote, Transfer};
+        use zk_encryption_circuits::wallet::sender::ChannelWitness;
+        let doc = crate::document::by_name("us_rsa4096_rsa2048")?;
+        let (date, expiry) = (1_790_467_200, 1_790_812_799);
+        let itree = Tree::from_leaves(vec![leaf(registered, &doc.dg1, expiry)]);
+        let cid = Fr::from(3607u64);
+        let t = Transfer::build(
+            cid,
+            Tree::default().root(),
+            [InNote::dummy(spender), InNote::dummy(spender)],
+            [
+                OutNote::to(Emit::pk(spender), 5),
+                OutNote::to(Emit::pk(spender), 0),
+            ],
+            5,
+            0,
+            0,
+            Fr::from(0u64),
+            ChannelWitness::throwaway()?,
+        )
+        .map_err(|e| eyre::eyre!("{e:?}"))?;
+        let salt = Fr::from(99u64);
+        let member = member_inputs(
+            itree.root(),
+            date,
+            registered,
+            &doc.dg1,
+            salt,
+            expiry,
+            &itree.path(0),
+            t.ctx,
+        );
+        let emit = emit_devnet_circuits::emit_artifacts();
+        let channel = zk_encryption_circuits::artifacts();
+        let artifacts =
+            noir_zk_core::Merged::new(&[&emit, &channel, &noir_zk_backend::kernels::Kernels]);
+        let proof = crate::wallet::prove_member(
+            &artifacts,
+            member,
+            doc.envelope(salt, t.ctx, t.channel.s),
+            &t,
+        )?
+        .to_bytes();
+        emit_devnet_circuits::verify(
+            &emit_devnet_circuits::circuits::pipelines::member_transfer::ROOT,
+            &proof,
+        )?;
+        Ok(proof)
+    }
+
+    /// The kernel binds transfer_holder's holder tag to identity_member's: only the registered
+    /// key spends on member_transfer (both apps are satisfiable alone; the fold is not).
+    #[test]
+    #[ignore = "proves (bb's CRS): cargo test --release -- --ignored holder"]
+    fn holder_binding_is_enforced_by_the_kernel() {
+        let (alice, bob) = (Fr::from(11u64), Fr::from(22u64));
+        member_deposit(alice, alice).expect("the registered holder proves");
+        let err = member_deposit(alice, bob).expect_err("another key must not");
+        // The kernel step folding transfer_holder refuses its layout's holder_tag binding.
+        assert!(
+            format!("{err:#}").starts_with("transfer: unsatisfied: kernel_step"),
+            "{err:#}"
+        );
+    }
 }

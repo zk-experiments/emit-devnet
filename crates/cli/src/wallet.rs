@@ -401,35 +401,12 @@ impl Wallet {
                 let pool = ctx.pool(&[])?;
                 let artifacts = pool.merged();
                 let start = Instant::now();
-                let (proof, _) = member_transfer::fold(&artifacts)
-                    .map_err(e("pipeline"))?
-                    .app(KernelStepMember::select("identity_member", member).map_err(e("member"))?)
-                    .map_err(e("member"))?
-                    .app(
-                        KernelStepSession::select("channel_session", t.session_inputs())
-                            .map_err(e("session"))?,
-                    )
-                    .map_err(e("session"))?
-                    .app(
-                        KernelStepEnvelope::select(
-                            "channel_envelope",
-                            doc.envelope(salt, t.ctx, t.channel.s),
-                        )
-                        .map_err(e("envelope"))?,
-                    )
-                    .map_err(e("envelope"))?
-                    .app(
-                        KernelStepTransferHolder::select("transfer_holder", t.inputs())
-                            .map_err(e("transfer"))?,
-                    )
-                    .map_err(e("transfer"))?
-                    .app(
-                        KernelStepNoteEnvelope::select("channel_envelope", t.note_inputs())
-                            .map_err(e("note"))?,
-                    )
-                    .map_err(e("note"))?
-                    .hiding(&DEPLOYMENT)
-                    .map_err(e("prove"))?;
+                let proof = prove_member(
+                    &artifacts,
+                    member,
+                    doc.envelope(salt, t.ctx, t.channel.s),
+                    &t,
+                )?;
                 let prove_s = start.elapsed().as_secs_f64();
                 (member_transfer::ROOT, "member_transfer", proof, prove_s)
             }
@@ -663,6 +640,41 @@ impl Wallet {
             synced: 0,
         })
     }
+}
+
+/// Folds member_transfer: identity_member (`member`), the session, the DG1 envelope (`envelope`),
+/// transfer_holder and the note envelope of `t`.
+pub fn prove_member(
+    artifacts: &dyn noir_zk_core::Artifacts,
+    member: String,
+    envelope: String,
+    t: &Transfer,
+) -> eyre::Result<emit_devnet_circuits::FoldedProof> {
+    let e = |what: &'static str| move |err: noir_zk_core::Error| eyre::eyre!("{what}: {err}");
+    let (proof, _) = member_transfer::fold(artifacts)
+        .map_err(e("pipeline"))?
+        .app(KernelStepMember::select("identity_member", member).map_err(e("member"))?)
+        .map_err(e("member"))?
+        .app(
+            KernelStepSession::select("channel_session", t.session_inputs())
+                .map_err(e("session"))?,
+        )
+        .map_err(e("session"))?
+        .app(KernelStepEnvelope::select("channel_envelope", envelope).map_err(e("envelope"))?)
+        .map_err(e("envelope"))?
+        .app(
+            KernelStepTransferHolder::select("transfer_holder", t.inputs())
+                .map_err(e("transfer"))?,
+        )
+        .map_err(e("transfer"))?
+        .app(
+            KernelStepNoteEnvelope::select("channel_envelope", t.note_inputs())
+                .map_err(e("note"))?,
+        )
+        .map_err(e("note"))?
+        .hiding(&DEPLOYMENT)
+        .map_err(e("prove"))?;
+    Ok(proof)
 }
 
 /// An address as the field the transfer app takes (`payout_recipient`): its 20 bytes big-endian.
