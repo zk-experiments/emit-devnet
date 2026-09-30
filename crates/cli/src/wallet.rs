@@ -395,6 +395,7 @@ impl Wallet {
                     &doc.dg1,
                     salt,
                     r.expiry,
+                    r.blinding()?,
                     &itree.path(r.index.expect("live")),
                     t.ctx,
                 );
@@ -536,6 +537,9 @@ impl Wallet {
         let pool = ctx.pool(&labels)?;
         let artifacts = pool.merged();
         let sk = self.sk();
+        // The leaf's blinding: without it, anyone who knows the holder's address and MRZ could
+        // recompute the leaf and find this registration on-chain.
+        let blinding = Rng::field();
         let e = |what: &str| {
             let what = what.to_string();
             move |err: noir_zk_core::Error| eyre::eyre!("{what}: {err}")
@@ -552,7 +556,7 @@ impl Wallet {
             .app(
                 KernelStepRegister::select(
                     "register",
-                    identity::register_inputs(salt, &doc.dg1, sk, expiry),
+                    identity::register_inputs(salt, &doc.dg1, sk, expiry, blinding),
                 )
                 .map_err(e("register"))?,
             )
@@ -567,12 +571,13 @@ impl Wallet {
             .map_err(e("local verification"))?;
         let verify_ms = start.elapsed().as_secs_f64() * 1e3;
 
-        let leaf = identity::leaf(sk, &doc.dg1, expiry).hex();
+        let leaf = identity::leaf(sk, &doc.dg1, expiry, blinding).hex();
         self.identity = Some(Registration {
             leaf: leaf.clone(),
             index: None,
             salt: salt.hex(),
             expiry,
+            blinding: Some(blinding.hex()),
         });
         self.save(&ctx.home)?;
         let signer: alloy::signers::local::PrivateKeySigner = self.key.parse()?;

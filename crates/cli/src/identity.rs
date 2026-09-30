@@ -18,24 +18,44 @@ pub struct Registration {
     pub salt: String,
     /// Unix seconds: the last second the registration is valid.
     pub expiry: u64,
+    /// The leaf's blinding (uniform random, from the OS CSPRNG at registration). A registration
+    /// stored before the leaf was blinded has none and can't prove membership.
+    #[serde(default)]
+    pub blinding: Option<String>,
 }
 
-/// The leaf `H(IDENTITY, H(PK, sk), H(payload), expiry)`.
-pub fn leaf(sk: Fr, dg1: &Dg1, expiry: u64) -> Fr {
+impl Registration {
+    pub fn blinding(&self) -> eyre::Result<Fr> {
+        self.blinding.as_deref().map(Fr::from_hex).ok_or_else(|| {
+            eyre::eyre!(
+                "the stored registration (leaf {}) has no blinding: it predates the blinded \
+                 identity leaf; register again with `identity register --force` (or use --full-passport)",
+                self.leaf
+            )
+        })
+    }
+}
+
+/// The leaf `H(IDENTITY, H(PK, sk), H(payload), expiry, blinding)`.
+pub fn leaf(sk: Fr, dg1: &Dg1, expiry: u64, blinding: Fr) -> Fr {
     Poseidon::hash(&[
-        Poseidon::domain("emit-v2/identity"),
+        Poseidon::domain(IDENTITY),
         Emit::pk(sk),
         Poseidon::hash(&dg1.to_payload()),
         Fr::from(expiry),
+        blinding,
     ])
 }
+
+/// The leaf's domain (identity_cache::IDENTITY; v2: the blinded leaf).
+const IDENTITY: &str = "emit-v2/identity/v2";
 
 fn s(f: Fr) -> Value {
     Value::String(f.hex())
 }
 
 /// The register app's `Prover.toml`.
-pub fn register_inputs(salt: Fr, dg1: &Dg1, sk: Fr, expiry: u64) -> String {
+pub fn register_inputs(salt: Fr, dg1: &Dg1, sk: Fr, expiry: u64, blinding: Fr) -> String {
     let mut buf = dg1.0.clone();
     buf.resize(Dg1::MAX, 0);
     let mut t = Table::new();
@@ -46,6 +66,7 @@ pub fn register_inputs(salt: Fr, dg1: &Dg1, sk: Fr, expiry: u64) -> String {
     );
     t.insert("sk".into(), s(sk));
     t.insert("expiry".into(), Value::String(expiry.to_string()));
+    t.insert("blinding".into(), s(blinding));
     toml::to_string(&t).expect("toml")
 }
 
@@ -58,6 +79,7 @@ pub fn member_inputs(
     dg1: &Dg1,
     salt: Fr,
     expiry: u64,
+    blinding: Fr,
     path: &Path,
     ctx: Fr,
 ) -> String {
@@ -71,6 +93,7 @@ pub fn member_inputs(
     );
     t.insert("payload_salt".into(), s(salt));
     t.insert("expiry".into(), Value::String(expiry.to_string()));
+    t.insert("blinding".into(), s(blinding));
     t.insert("index".into(), Value::String(path.index.to_string()));
     t.insert(
         "path".into(),
@@ -90,15 +113,29 @@ mod tests {
     #[test]
     fn domain_and_path_match_the_circuits() {
         assert_eq!(
-            Poseidon::domain("emit-v2/identity").hex(),
-            "0x00000000000000000000000000000000656d69742d76322f6964656e74697479"
+            Poseidon::domain(IDENTITY).hex(),
+            "0x00000000000000000000000000656d69742d76322f6964656e746974792f7632"
         );
         let dg1 = crate::document::by_name("us_rsa4096_rsa2048")
             .expect("fixture")
             .dg1;
-        let l = leaf(Fr::from(7u64), &dg1, 2_000_000_000);
+        let l = leaf(Fr::from(7u64), &dg1, 2_000_000_000, Fr::from(5u64));
+        assert_ne!(l, leaf(Fr::from(7u64), &dg1, 2_000_000_000, Fr::from(6u64)));
         let tree = Tree::from_leaves(vec![Fr::from(1u64), l, Fr::from(3u64)]);
         assert_eq!(tree.path(1).root(l), tree.root());
+    }
+
+    /// A registration stored before the leaf was blinded still loads, and refuses to prove.
+    #[test]
+    fn a_registration_without_blinding_fails_clearly() {
+        let r: Registration =
+            serde_json::from_str(r#"{"leaf":"0x01","index":0,"salt":"0x02","expiry":1}"#)
+                .expect("an old registration loads");
+        let err = r.blinding().expect_err("no blinding");
+        assert!(
+            format!("{err}").contains("identity register --force"),
+            "{err}"
+        );
     }
 
     /// Folds a deposit on member_transfer by `spender` with `registered`'s registration.
@@ -107,7 +144,8 @@ mod tests {
         use zk_encryption_circuits::wallet::sender::ChannelWitness;
         let doc = crate::document::by_name("us_rsa4096_rsa2048")?;
         let (date, expiry) = (1_790_467_200, 1_790_812_799);
-        let itree = Tree::from_leaves(vec![leaf(registered, &doc.dg1, expiry)]);
+        let blinding = Fr::from(0x2bd1u64);
+        let itree = Tree::from_leaves(vec![leaf(registered, &doc.dg1, expiry, blinding)]);
         let cid = Fr::from(3607u64);
         let t = Transfer::build(
             cid,
@@ -132,6 +170,7 @@ mod tests {
             &doc.dg1,
             salt,
             expiry,
+            blinding,
             &itree.path(0),
             t.ctx,
         );
