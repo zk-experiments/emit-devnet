@@ -6,3 +6,5 @@ contracts/broadcast/
 .devnet/
 .DS_Store
 *.log
+.env
+.env.*
