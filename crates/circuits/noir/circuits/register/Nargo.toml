@@ -6,4 +6,4 @@ compiler_version = ">=1.0.0"
 
 [dependencies]
 identity_cache = { path = "../../lib/identity_cache" }
-eid_steps = { git = "https://github.com/zk-experiments/eid-circuits", tag = "v0.8.0", directory = "noir/lib/steps" }
+eid_steps = { git = "https://github.com/zk-experiments/eid-circuits", tag = "v0.8.2", directory = "noir/lib/steps" }

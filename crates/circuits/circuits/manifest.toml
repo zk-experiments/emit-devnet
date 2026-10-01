@@ -74,7 +74,7 @@ slots = ["identity_root", "date", "holder_tag"]
 
 # ------------------------------------------------------------ wrapped layers (build.rs: noir_zk_codegen::wrapped)
 
-# The identity layer: eid-circuits v0.8.0 (DSC, SOD and document steps).
+# The identity layer: eid-circuits v0.8.2 (DSC, SOD and document steps).
 [[family]]
 layer = "eid"
 name = "dsc"
@@ -90,7 +90,7 @@ layer = "eid"
 name = "document"
 source = "eid-circuits"
 
-# The channel layer: zk-encryption v0.1.1 (its frozen library zk-encryption@0.1.0).
+# The channel layer: zk-encryption v0.1.3 (frozen as zk-encryption@0.1.3).
 [[family]]
 layer = "channel"
 name = "session"

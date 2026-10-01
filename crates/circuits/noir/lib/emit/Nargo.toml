@@ -5,5 +5,5 @@ authors = ["zk-experiments"]
 compiler_version = ">=1.0.0"
 
 [dependencies]
-channel = { git = "https://github.com/zk-experiments/zk-encryption", tag = "v0.1.1", directory = "noir/lib/channel" }
+channel = { git = "https://github.com/zk-experiments/zk-encryption", tag = "v0.1.3", directory = "noir/lib/channel" }
 poseidon = { tag = "v0.3.0", git = "https://github.com/noir-lang/poseidon" }
