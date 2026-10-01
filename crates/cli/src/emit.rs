@@ -1,5 +1,6 @@
-//! Emit V2 notes and the 2-in / 2-out JoinSplit transfer with the note opening sealed on the
-//! channel, as the transfer app constrains it (from the experiments repository's reference crate).
+//! The provers' inputs: the 2-in / 2-out JoinSplit transfer with the note opening sealed on the
+//! channel and output 0's refund note, and the resolve of an escrowed note, rendered as their apps'
+//! `Prover.toml`. The note math is emit-protocol's.
 
 use crate::tree::{Path, TREE_DEPTH};
 use ark_ff::Zero;
@@ -10,9 +11,8 @@ use zk_encryption_circuits::wallet::poseidon::{FieldHex, Rng};
 use zk_encryption_circuits::wallet::ratchet::Ratchet;
 use zk_encryption_circuits::wallet::sender::ChannelWitness;
 
-/// The smallest note a transfer may create (emit::MIN_NOTE_VALUE, which transfer_holder checks):
-/// 1/3 of the native coin in wei, rounded down. An output is this much or more, or 0.
-pub const MIN_NOTE_VALUE: u128 = 333_333_333_333_333_333;
+pub use emit_protocol::MIN_NOTE_VALUE;
+use emit_protocol::Resolve;
 
 /// A transfer input.
 #[derive(Clone, Debug)]
@@ -75,6 +75,9 @@ pub struct Transfer {
     pub rhos: [Fr; 2],
     pub ctx: Fr,
     pub note_salt: Fr,
+    /// The refund note C_r of the escrowed output 0: its value for input 0's key.
+    pub refund_r: Fr,
+    pub refund: Fr,
 }
 
 #[derive(Debug)]
@@ -118,6 +121,14 @@ impl Transfer {
         let commitments =
             [0, 1].map(|j| Emit::commitment(cid, outs[j].pk, outs[j].value, rhos[j], outs[j].r));
         let ctx = Emit::ctx(cid, nullifiers, commitments);
+        let refund_r = Rng::field();
+        let refund = emit_protocol::note::refund(
+            cid,
+            Emit::pk(ins[0].sk),
+            outs[0].value,
+            nullifiers[0],
+            refund_r,
+        );
         Ok(Self {
             cid,
             root,
@@ -133,7 +144,14 @@ impl Transfer {
             rhos,
             ctx,
             note_salt: Rng::field(),
+            refund_r,
+            refund,
         })
+    }
+
+    /// The refund note's opening (output 0's value, rho = H(RHO, N0, 2)).
+    pub fn refund_opening(&self) -> NoteOpening {
+        emit_protocol::note::refund_opening(self.outs[0].value, self.nullifiers[0], self.refund_r)
     }
 
     /// Output `j`'s opening.
@@ -187,6 +205,7 @@ impl Transfer {
             Value::Array(self.outs.iter().map(out).collect()),
         );
         t.insert("note_salt".into(), s(self.note_salt));
+        t.insert("refund_r".into(), s(self.refund_r));
         toml::to_string(&t).expect("toml")
     }
 
@@ -205,4 +224,19 @@ impl Transfer {
             self.channel.s,
         )
     }
+}
+
+/// The escrow_resolve app's `Prover.toml` for `r`.
+pub fn resolve_inputs(r: &Resolve) -> String {
+    let s = |f: Fr| Value::String(f.hex());
+    let mut t = Table::new();
+    t.insert("cid".into(), s(r.cid));
+    t.insert("sk".into(), s(r.sk));
+    t.insert("value".into(), s(Fr::from(r.note.value)));
+    t.insert("rho".into(), s(r.note.rho));
+    t.insert("r".into(), s(r.note.r));
+    t.insert("action".into(), s(r.action.field()));
+    t.insert("fee".into(), s(Fr::from(r.fee)));
+    t.insert("r_out".into(), s(r.r_out));
+    toml::to_string(&t).expect("toml")
 }

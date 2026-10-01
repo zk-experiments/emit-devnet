@@ -179,7 +179,7 @@ mod tests {
             &itree.path(0).expect("watched"),
             t.ctx,
         );
-        let emit = emit_devnet_circuits::emit_artifacts();
+        let emit = emit_circuits::emit_artifacts();
         let channel = zk_encryption_circuits::artifacts();
         let artifacts =
             noir_zk_core::Merged::new(&[&emit, &channel, &noir_zk_backend::kernels::Kernels]);
@@ -190,11 +190,86 @@ mod tests {
             &t,
         )?
         .to_bytes();
-        emit_devnet_circuits::verify(
-            &emit_devnet_circuits::circuits::pipelines::member_transfer::ROOT,
+        emit_circuits::verify(
+            &emit_circuits::circuits::pipelines::member_transfer::ROOT,
             &proof,
         )?;
         Ok(proof)
+    }
+
+    /// Folds an accept on member_resolve of a note owned by `resolver`, with `registered`'s
+    /// registration.
+    fn member_accept(registered: Fr, resolver: Fr) -> eyre::Result<Vec<u8>> {
+        use emit_circuits::circuits::families::{KernelStepEscrowResolve, KernelStepMember};
+        use emit_circuits::circuits::pipelines::member_resolve;
+        use emit_protocol::{Action, Resolve};
+        use noir_zk_core::StepFamily;
+        use zk_encryption_circuits::wallet::emit::NoteOpening;
+        let doc = crate::document::by_name("us_rsa4096_rsa2048")?;
+        let (date, expiry) = (1_790_467_200, 1_790_812_799);
+        let blinding = Fr::from(0x2bd1u64);
+        let mut itree = Tree::default();
+        itree.append(leaf(registered, &doc.dg1, expiry, blinding), true);
+        let note = NoteOpening {
+            value: crate::emit::MIN_NOTE_VALUE,
+            rho: Fr::from(5u64),
+            r: Fr::from(6u64),
+        };
+        let r = Resolve::build(
+            Fr::from(3607u64),
+            resolver,
+            note,
+            Action::Accept,
+            0,
+            Fr::from(5u64),
+        )?;
+        let member = member_inputs(
+            itree.root(),
+            date,
+            registered,
+            &doc.dg1,
+            Fr::from(99u64),
+            expiry,
+            blinding,
+            &itree.path(0).expect("watched"),
+            r.ctx,
+        );
+        let emit = emit_circuits::emit_artifacts();
+        let artifacts = noir_zk_core::Merged::new(&[&emit, &noir_zk_backend::kernels::Kernels]);
+        let e = |what: &'static str| move |err: noir_zk_core::Error| eyre::eyre!("{what}: {err}");
+        let (proof, _) = member_resolve::fold(&artifacts)
+            .map_err(e("pipeline"))?
+            .app(KernelStepMember::select("identity_member", member).map_err(e("member"))?)
+            .map_err(e("member"))?
+            .app(
+                KernelStepEscrowResolve::select("escrow_resolve", crate::emit::resolve_inputs(&r))
+                    .map_err(e("resolve"))?,
+            )
+            .map_err(e("resolve"))?
+            .hiding(&emit_circuits::circuits::DEPLOYMENT)
+            .map_err(e("prove"))?;
+        let proof = proof.to_bytes();
+        let fields = emit_circuits::verify(&member_resolve::ROOT, &proof)?;
+        // The slots after the three roots: identity root, date, holder tag, cid, C0, action, c_out, fee.
+        eyre::ensure!(
+            fields[7] == r.c0 && fields[9] == r.c_out,
+            "the slots are the resolve's"
+        );
+        Ok(proof)
+    }
+
+    /// The kernel binds escrow_resolve's holder tag to identity_member's: only a registered owner
+    /// resolves (the resolve alone is satisfiable by any key; the fold is not).
+    #[test]
+    #[ignore = "proves (bb's CRS): cargo test --release -- --ignored holder"]
+    fn holder_binding_is_enforced_on_resolve() {
+        let (alice, bob) = (Fr::from(11u64), Fr::from(22u64));
+        member_accept(alice, alice).expect("the registered owner resolves");
+        let err = member_accept(alice, bob).expect_err("another key must not");
+        assert!(
+            format!("{err:#}").starts_with("resolve: unsatisfied: kernel_step"),
+            "{err:#}"
+        );
     }
 
     /// The kernel binds transfer_holder's holder tag to identity_member's: only the registered

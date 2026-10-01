@@ -1,10 +1,12 @@
-//! The demo as a test, against a spawned node: `cargo test -- --ignored devnet` (needs forge and
-//! cast on PATH, and the network the first time: eid's packs and Noir source, the catalogs).
+//! The demo as a test, against a spawned node: `cargo test -- --ignored devnet` (needs cast on
+//! PATH, and the network the first time: eid's packs and Noir source, the catalogs).
 //! Alice (US passport) and Bob (DE passport) each register once in the identity cache; Alice
-//! deposits 100 and pays Bob 60 on the handshake and 5 on the ratchet; Bob's listener sees both
-//! with Alice's MRZ; Bob splits, merges and withdraws 30 to his EOA, and a note below the minimum
-//! is refused; every transaction proves membership (member_transfer); every balance is checked
-//! exactly, the EOA's net of the withdrawal's gas.
+//! deposits 100 and pays Bob 60 on the handshake and 5 on the ratchet, each escrowed with its
+//! envelope off-chain (the mailbox); Bob's listener sees both with Alice's MRZ and Bob accepts them
+//! (member_resolve); Alice pays 2 more, which Bob rejects (her refund note returns); Bob splits
+//! (accepting his own escrowed output), merges and withdraws 30 to his EOA, and a note below the
+//! minimum is refused; every transaction proves membership; every balance is checked exactly, the
+//! EOA's net of the withdrawal's gas.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -128,32 +130,7 @@ fn devnet_end_to_end() {
             .args(args)
             .env_remove("ZKPOOL_WALLET"))
     };
-    let info = z(&["info"]);
-    let field = |k: &str| {
-        info.lines()
-            .find(|l| l.starts_with(k))
-            .and_then(|l| l.split_whitespace().nth(1))
-            .unwrap_or_else(|| panic!("{k} in {info}"))
-            .to_string()
-    };
-    let deploy = run(Command::new("forge")
-        .current_dir(root().join("contracts"))
-        .args([
-            "script",
-            "script/Deploy.s.sol",
-            "--rpc-url",
-            &rpc(),
-            "--broadcast",
-            "--private-key",
-            DEPLOYER_KEY,
-        ])
-        .env("DEPLOYMENT_ROOT", field("deployment_root"))
-        .env("REGISTER_PIPELINE", field("identity_register"))
-        .env("MEMBER_PIPELINE", field("member_transfer"))
-        .env(
-            "REGISTRY_ROOTS",
-            format!("{},{}", field("fixtures_registry"), field("csca_registry")),
-        ));
+    let deploy = z(&["deploy", "--key", DEPLOYER_KEY]);
     let pool = deploy
         .lines()
         .find_map(|l| l.trim().strip_prefix("EmitV2Pool "))
@@ -236,9 +213,36 @@ fn devnet_end_to_end() {
     assert!(heard.contains("received 60 ETH (handshake"), "{heard}");
     assert!(heard.contains("received 5 ETH (ratchet index 1"), "{heard}");
     assert!(heard.contains("from P<USAERIKSSON<<ANNA<MARIA"), "{heard}");
-    assert!(zp(&["-w", "bob", "sync"]).contains("balance 65 ETH"));
+    let synced = zp(&["-w", "bob", "sync"]);
+    assert!(
+        synced.contains("balance 0 ETH, 2 escrow(s) to resolve"),
+        "{synced}"
+    );
+    let accepted = zp(&["-w", "bob", "resolve", "--all"]);
+    assert_eq!(
+        accepted.matches(": member_resolve proved").count(),
+        2,
+        "{accepted}"
+    );
+    assert!(zp(&["-w", "bob", "sync"]).contains("balance 65 ETH, 0 escrow(s)"));
 
-    log.push(zp(&["-w", "bob", "split", "--amounts", "10,49.99"]));
+    // Bob rejects the next payment: Alice's refund note returns to her.
+    log.push(zp(&[
+        "-w", "alice", "transfer", "--to", "bob", "--amount", "2",
+    ]));
+    let rejected = zp(&["-w", "bob", "resolve", "--all", "--reject"]);
+    assert!(
+        rejected.contains("bob: reject 2 ETH (ratchet index 2)"),
+        "{rejected}"
+    );
+    assert!(zp(&["-w", "alice", "sync"]).contains("balance 34.97 ETH"));
+
+    let split = zp(&["-w", "bob", "split", "--amounts", "10,49.99"]);
+    assert!(
+        split.contains("bob: accept own escrow: member_resolve proved"),
+        "{split}"
+    );
+    log.push(split);
     log.push(zp(&["-w", "bob", "merge"]));
     let small = Command::new(&zkpool_bin)
         .args(["--home", dir.join("wallets").to_str().expect("utf-8")])
@@ -268,18 +272,18 @@ fn devnet_end_to_end() {
         "Bob's EOA: +30 ETH, less the gas"
     );
 
-    assert!(zp(&["-w", "alice", "balance"]).contains("shielded 34.98 ETH in 1 note(s)"));
+    assert!(zp(&["-w", "alice", "balance"]).contains("shielded 34.97 ETH in 2 note(s)"));
     assert!(zp(&["-w", "bob", "balance"]).contains("shielded 34.97 ETH in 2 note(s)"));
     assert_eq!(
         wei(&cast(&["balance", &pool])),
-        69_950_000_000_000_000_000,
-        "the pool holds the shielded 69.95"
+        69_940_000_000_000_000_000,
+        "the pool holds the shielded 69.94"
     );
     let pipelines: Vec<_> = log
         .iter()
         .map(|l| l.split(" proved").next().and_then(|s| s.rsplit(' ').next()))
         .collect();
-    assert_eq!(pipelines, [Some("member_transfer"); 6], "{log:?}");
+    assert_eq!(pipelines, [Some("member_transfer"); 7], "{log:?}");
     for l in log.iter().flat_map(|s| s.lines()) {
         println!("{l}");
     }

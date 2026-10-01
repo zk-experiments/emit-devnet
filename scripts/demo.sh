@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # The whole system end to end: builds, starts the devnet node, deploys the pool, and runs Alice
 # (US passport) and Bob (DE passport) through identities, bundles, a registration each in the
-# identity cache (the passport proved once), then a deposit, a handshake and a ratchet transfer,
-# Bob's listener, a split, a merge and a withdrawal, each proving membership (member_transfer),
-# and a note below the minimum (1/3 ETH) refused; checks the balances and prints each step's
-# pipeline, prove time and gas.
+# identity cache (the passport proved once), then a deposit, a handshake and a ratchet transfer
+# (each escrowed, its envelope off-chain), Bob's listener and his accepts (member_resolve), a
+# payment Bob rejects (Alice's refund returns), a split, a merge and a withdrawal, each proving
+# membership, and a note below the minimum (1/3 ETH) refused; checks the balances and prints each
+# step's pipeline, prove time and gas.
 # The prover's own logging (bb) goes to $DEVNET/prover.log.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 cargo build -q -p emit-devnet-node -p zkpool 2>/dev/null || cargo build -p emit-devnet-node -p zkpool
-(cd contracts && forge build >/dev/null 2>&1)
 source scripts/devnet.sh
 trap 'kill $NODE_PID 2>/dev/null || true' EXIT
 BOB_EOA=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
@@ -47,9 +47,15 @@ expect "$listened" "received 60 ETH (handshake"
 expect "$listened" "received 5 ETH (ratchet index 1"
 expect "$listened" "from P<USAERIKSSON<<ANNA<MARIA"
 
-step "Bob syncs from the logs and lists his notes"
-zk -w bob sync
+step "Bob screens the escrows (the sender's MRZ) and accepts them"
+zk -w bob escrows
+zk -w bob resolve --all | tee -a "$DEVNET/tx.log"
 zk -w bob notes
+
+step "Alice pays Bob 2 more; Bob rejects it and Alice's refund note returns"
+zk -w alice transfer --to bob --amount 2 | tee -a "$DEVNET/tx.log"
+zk -w bob resolve --all --reject | tee -a "$DEVNET/tx.log"
+zk -w alice notes
 
 step "Bob splits the 60 note (10 + 49.99, fee 0.01), merges the two smallest, withdraws 30"
 zk -w bob split --amounts 10,49.99 | tee -a "$DEVNET/tx.log"
@@ -65,16 +71,17 @@ step "balances"
 a=$(zk -w alice balance); b=$(zk -w bob balance)
 echo "$a"; echo "$b"
 zk -w bob notes
-expect "$a" "shielded 34.98 ETH in 1 note(s)"   # 100 - 60 - 5 - 2 fees
+expect "$a" "shielded 34.97 ETH in 2 note(s)"   # 100 - 60 - 5 - 3 fees (the 2 came back)
 expect "$b" "shielded 34.97 ETH in 2 note(s)"   # 65 - 30 - 3 fees
 pool=$(cast balance "$ZKPOOL_POOL" --rpc-url "$ZKPOOL_RPC")
-[ "$pool" = "69950000000000000000" ] || { echo "pool holds $pool wei" >&2; exit 1; }
-echo "pool contract holds 69.95 ETH (= 34.98 + 34.97 shielded)"
+[ "$pool" = "69940000000000000000" ] || { echo "pool holds $pool wei" >&2; exit 1; }
+echo "pool contract holds 69.94 ETH (= 34.97 + 34.97 shielded)"
 
 step "timings and gas (pipeline | prove | gas)"
 log=$(cat "$DEVNET/tx.log")
 expect "$log" "registered (identity leaf 0"
 expect "$log" "registered (identity leaf 1"
-[ "$(grep -c ': member_transfer proved' <<<"$log")" = 6 ] || { echo "expected 6 member transfers" >&2; exit 1; }
+[ "$(grep -c ': member_transfer proved' <<<"$log")" = 7 ] || { echo "expected 7 member transfers" >&2; exit 1; }
+[ "$(grep -c ': member_resolve proved' <<<"$log")" = 4 ] || { echo "expected 4 resolves" >&2; exit 1; }
 sed -E 's/^([a-z]+: [^:]*): ([a-z_]+) proved in ([0-9.]+ s).*, gas ([0-9]+) .*/\1 | \2 | \3 | \4 gas/' "$DEVNET/tx.log" | grep '|'
 echo; echo "demo ok"

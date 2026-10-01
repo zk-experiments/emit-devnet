@@ -80,16 +80,28 @@ impl Document {
         Ok((w, dg1_salt))
     }
 
-    /// The DG1 envelope app's inputs: DG1's payload, committed under `salt`, sealed under the
-    /// chain key `s` in context `ctx`.
+    /// The dg1_envelope app's inputs: DG1's payload, committed under `salt`, sealed under the
+    /// chain key `s` in context `ctx` (the app seals under KEY_PAYLOAD itself).
     pub fn envelope(&self, salt: Fr, ctx: Fr, s: Fr) -> String {
-        zk_encryption_circuits::envelope::inputs(
-            Ratchet::key_payload(),
-            &self.dg1.to_payload(),
-            salt,
-            ctx,
-            s,
-        )
+        use toml::{Table, Value};
+        let f = |x: Fr| Value::String(x.hex());
+        let mut t = Table::new();
+        t.insert(
+            "payload".into(),
+            Value::Array(self.dg1.to_payload().iter().map(|x| f(*x)).collect()),
+        );
+        t.insert("salt".into(), f(salt));
+        t.insert("context".into(), f(ctx));
+        t.insert("s".into(), f(s));
+        toml::to_string(&t).expect("toml")
+    }
+
+    /// DG1 sealed as the dg1_envelope app seals it: c_id, what travels off-chain.
+    pub fn sealed_dg1(&self, ctx: Fr, s: Fr) -> eyre::Result<[Fr; 6]> {
+        let (_, c) = Ratchet::seal(Ratchet::key_payload(), s, ctx, &self.dg1.to_payload())
+            .map_err(|e| eyre::eyre!("sealing DG1: {e:?}"))?;
+        c.try_into()
+            .map_err(|_| eyre::eyre!("sealing DG1: not six fields"))
     }
 
     /// The passport's date of expiry (its last second, unix time).

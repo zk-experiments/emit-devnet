@@ -4,19 +4,23 @@ mod chain;
 mod document;
 mod emit;
 mod identity;
+mod mailbox;
 mod tree;
 mod wallet;
 
 use alloy::primitives::{Address, U256};
 use alloy::providers::{Provider, ProviderBuilder};
 use clap::{Parser, Subcommand};
-use emit_devnet_circuits::setup::Pool;
+use emit_circuits::setup::Pool;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use wallet::{Plan, Wallet};
 use zk_encryption_circuits::wallet::poseidon::FieldHex;
 use zk_encryption_circuits::wallet::sender::Sender;
+
+/// The devnet's deployer: the standard test mnemonic's account 0 (genesis.json funds it).
+const DEPLOYER_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
 /// The devnet's known dev keys (the standard test mnemonic's accounts 1 and 2): Alice's and Bob's
 /// funded EOAs (genesis.json). Account 0 deploys.
@@ -71,6 +75,16 @@ enum Cmd {
         #[arg(long)]
         check: bool,
     },
+    /// Deploys the pool (emit-protocol-abi's bytecode) for the pinned deployment, accepting the
+    /// fixtures' CSCA registry root and the published one; prints `EmitV2Pool <address>`.
+    Deploy {
+        /// The deployer's key (default: the devnet's account 0).
+        #[arg(long, env = "ZKPOOL_DEPLOYER_KEY", default_value = DEPLOYER_KEY)]
+        key: String,
+        /// How long an escrowed note waits for its owner, in seconds.
+        #[arg(long, default_value_t = 86_400)]
+        escrow_window: u64,
+    },
     #[command(subcommand)]
     Identity(IdentityCmd),
     #[command(subcommand)]
@@ -115,7 +129,29 @@ enum Cmd {
         #[arg(long, default_value = "0.01")]
         fee: String,
     },
-    /// Follows the pool live (a log subscription), printing received notes.
+    /// Lists the escrows addressed here (awaiting this wallet's resolve) and those it sent.
+    Escrows,
+    /// Resolves escrows addressed here: accepts (the note, less the fee, becomes this wallet's) or
+    /// rejects (it goes back to the sender). An escrow is named by a prefix of its C0.
+    Resolve {
+        /// The escrow's C0 (a prefix is enough); --all for every escrow addressed here.
+        #[arg(long, required_unless_present = "all")]
+        escrow: Option<String>,
+        #[arg(long)]
+        all: bool,
+        /// Hand it back to the sender instead.
+        #[arg(long)]
+        reject: bool,
+        /// Paid from the note on an accept (a reject pays none).
+        #[arg(long, default_value = "0")]
+        fee: String,
+    },
+    /// Hands back an escrow this wallet sent whose window passed (its refund note returns here).
+    Refund {
+        #[arg(long)]
+        escrow: String,
+    },
+    /// Follows the pool live (a log subscription), printing notes received into escrow.
     Listen {
         /// Stop after this many seconds (default: until Ctrl-C).
         #[arg(long)]
@@ -195,13 +231,12 @@ impl Ctx {
     /// packs downloaded if not cached.
     pub fn pool(&self, labels: &[String]) -> eyre::Result<&Pool> {
         if self.artifacts.get().is_none() {
-            let pins = emit_devnet_circuits::pins::Pins::embedded();
+            let pins = emit_circuits::pins::Pins::embedded();
             let checks = pins.check(false).map_err(|e| eyre::eyre!(e))?;
             eprintln!("pins: {} checks ok", checks.len());
             let labels: BTreeSet<String> = labels.iter().cloned().collect();
-            let pool =
-                emit_devnet_circuits::setup::pool(&pins, &labels, &|l| eprintln!("setup: {l}"))
-                    .map_err(|e| eyre::eyre!("{e}"))?;
+            let pool = emit_circuits::setup::pool(&pins, &labels, &|l| eprintln!("setup: {l}"))
+                .map_err(|e| eyre::eyre!("{e}"))?;
             let _ = self.artifacts.set(pool);
         }
         Ok(self.artifacts.get().expect("set"))
@@ -233,6 +268,17 @@ fn report(what: &str, r: &wallet::Receipt) {
     );
 }
 
+/// A transaction's receipt, then its own escrow's resolve, if any.
+fn report_all(name: &str, what: &str, rs: &[wallet::Receipt]) {
+    for (i, r) in rs.iter().enumerate() {
+        if i == 0 {
+            report(what, r);
+        } else {
+            report(&format!("{name}: accept own escrow"), r);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
@@ -255,21 +301,58 @@ async fn main() -> eyre::Result<()> {
         || async { Ok::<_, eyre::Report>(ProviderBuilder::new().connect(&cli.rpc).await?) };
 
     match cli.cmd {
+        Cmd::Deploy { key, escrow_window } => {
+            use alloy::primitives::B256;
+            use emit_circuits::circuits::{DEPLOYMENT_ROOT, pipelines};
+            let pins = emit_circuits::pins::Pins::embedded();
+            for line in pins.check(true).map_err(|e| eyre::eyre!(e))? {
+                println!("pins: {line}");
+            }
+            let signer: alloy::signers::local::PrivateKeySigner = key.parse()?;
+            let p = ProviderBuilder::new()
+                .wallet(signer)
+                .connect(&cli.rpc)
+                .await?;
+            let pool = chain::EmitV2Pool::deploy(
+                &p,
+                B256::from(DEPLOYMENT_ROOT),
+                B256::from(pipelines::identity_register::ROOT),
+                B256::from(pipelines::member_transfer::ROOT),
+                B256::from(pipelines::member_resolve::ROOT),
+                U256::from(escrow_window),
+            )
+            .await
+            .map_err(|e| eyre::eyre!("deploy: {e}"))?;
+            let fixtures = U256::from_be_bytes(document::registry_root(ctx.registry()?).to_be32());
+            let published = U256::from_str_radix(pins.csca.root.trim_start_matches("0x"), 16)?;
+            for root in [fixtures, published] {
+                pool.addRegistryRoot(root)
+                    .send()
+                    .await?
+                    .get_receipt()
+                    .await?;
+            }
+            println!("EmitV2Pool {}", pool.address());
+        }
         Cmd::Info { check } => {
-            use emit_devnet_circuits::circuits::{DEPLOYMENT_ROOT, pipelines};
-            let pins = emit_devnet_circuits::pins::Pins::embedded();
+            use emit_circuits::circuits::{DEPLOYMENT_ROOT, pipelines};
+            let pins = emit_circuits::pins::Pins::embedded();
             let reg = ctx.registry()?;
             println!(
                 "deployment_root   {}",
-                emit_devnet_circuits::hex32(&DEPLOYMENT_ROOT)
+                emit_circuits::hex32(&DEPLOYMENT_ROOT)
             );
             println!(
                 "identity_register {}",
-                emit_devnet_circuits::hex32(&pipelines::identity_register::ROOT)
+                emit_circuits::hex32(&pipelines::identity_register::ROOT)
             );
             println!(
                 "member_transfer   {}",
-                emit_devnet_circuits::hex32(&pipelines::member_transfer::ROOT)
+                emit_circuits::hex32(&pipelines::member_transfer::ROOT)
+            );
+            println!(
+                "member_resolve    {}",
+                emit_circuits::hex32(&pipelines::member_resolve::ROOT)
             );
             println!("fixtures_registry {}", document::registry_root(reg).hex());
             println!("csca_registry     {} ({})", pins.csca.root, pins.csca.tag);
@@ -353,9 +436,10 @@ async fn main() -> eyre::Result<()> {
             w.sync(&p, ctx.pool_address()?, &home).await?;
             let (v, fee) = (wei(&amount)?, wei(&fee)?);
             let pk = w.pk();
+            // The kept note is output 1 (appended at once); output 0, escrowed, is empty.
             let plan = Plan {
                 ins: vec![],
-                outs: [(pk, v - fee, true), (pk, 0, false)],
+                outs: [(pk, 0, false), (pk, v - fee, true)],
                 v_in: v,
                 v_out: 0,
                 fee,
@@ -363,7 +447,7 @@ async fn main() -> eyre::Result<()> {
                 to: None,
             };
             let r = w.execute(plan, &ctx, &p).await?;
-            report(&format!("{}: deposit {} ETH", w.name, eth(v)), &r);
+            report_all(&w.name, &format!("{}: deposit {} ETH", w.name, eth(v)), &r);
         }
         Cmd::Transfer { to, amount, fee } => {
             let (p, mut w) = (provider().await?, Wallet::load(&home, &name()?)?);
@@ -391,8 +475,13 @@ async fn main() -> eyre::Result<()> {
                 to: Some(to.clone()),
             };
             let r = w.execute(plan, &ctx, &p).await?;
-            report(
-                &format!("{}: transfer {} ETH to {to} ({kind})", w.name, eth(v)),
+            report_all(
+                &w.name,
+                &format!(
+                    "{}: transfer {} ETH to {to} ({kind}), in escrow until {to} resolves it",
+                    w.name,
+                    eth(v)
+                ),
                 &r,
             );
         }
@@ -406,7 +495,7 @@ async fn main() -> eyre::Result<()> {
             let before = p.get_balance(to).await?;
             let plan = Plan {
                 ins,
-                outs: [(pk, change, true), (pk, 0, false)],
+                outs: [(pk, 0, false), (pk, change, true)],
                 v_in: 0,
                 v_out: v,
                 fee,
@@ -414,7 +503,11 @@ async fn main() -> eyre::Result<()> {
                 to: None,
             };
             let r = w.execute(plan, &ctx, &p).await?;
-            report(&format!("{}: withdraw {} ETH to {to}", w.name, eth(v)), &r);
+            report_all(
+                &w.name,
+                &format!("{}: withdraw {} ETH to {to}", w.name, eth(v)),
+                &r,
+            );
             println!(
                 "  {to}: {} -> {} ETH",
                 eth(before.to()),
@@ -443,7 +536,7 @@ async fn main() -> eyre::Result<()> {
             let pk = w.pk();
             let plan = Plan {
                 ins,
-                outs: [(pk, total - fee, true), (pk, 0, false)],
+                outs: [(pk, 0, false), (pk, total - fee, true)],
                 v_in: 0,
                 v_out: 0,
                 fee,
@@ -451,7 +544,8 @@ async fn main() -> eyre::Result<()> {
                 to: None,
             };
             let r = w.execute(plan, &ctx, &p).await?;
-            report(
+            report_all(
+                &w.name,
                 &format!("{}: merge 2 -> 1 ({} ETH)", w.name, eth(total - fee)),
                 &r,
             );
@@ -496,7 +590,8 @@ async fn main() -> eyre::Result<()> {
                 to: None,
             };
             let r = w.execute(plan, &ctx, &p).await?;
-            report(
+            report_all(
+                &w.name,
                 &format!("{}: split 1 -> 2 ({} + {} ETH)", w.name, eth(x), eth(y)),
                 &r,
             );
@@ -529,15 +624,112 @@ async fn main() -> eyre::Result<()> {
                 );
             }
         }
+        Cmd::Escrows => {
+            let (p, mut w) = (provider().await?, Wallet::load(&home, &name()?)?);
+            w.sync(&p, ctx.pool_address()?, &home).await?;
+            println!("{}: {} escrow(s) addressed here", w.name, w.escrows.len());
+            for e in &w.escrows {
+                println!(
+                    "  in   {}  {:>12} ETH  {}, until {}{}",
+                    &e.c0[..18],
+                    eth(e.value()),
+                    e.how,
+                    e.deadline,
+                    e.from
+                        .as_ref()
+                        .map(|m| format!("  from {m}"))
+                        .unwrap_or_default()
+                );
+            }
+            for s in &w.sent {
+                println!(
+                    "  out  {}  {:>12} ETH  {}",
+                    &s.c0[..18],
+                    eth(s.value.parse().unwrap_or(0)),
+                    s.to.as_deref().unwrap_or("(own)")
+                );
+            }
+        }
+        Cmd::Resolve {
+            escrow,
+            all,
+            reject,
+            fee,
+        } => {
+            let (p, mut w) = (provider().await?, Wallet::load(&home, &name()?)?);
+            w.sync(&p, ctx.pool_address()?, &home).await?;
+            let fee = wei(&fee)?;
+            let action = if reject {
+                emit_protocol::Action::Reject
+            } else {
+                emit_protocol::Action::Accept
+            };
+            let chosen: Vec<wallet::Escrow> = w
+                .escrows
+                .iter()
+                .filter(|e| {
+                    all || escrow
+                        .as_ref()
+                        .is_some_and(|x| e.c0.starts_with(x.as_str()))
+                })
+                .cloned()
+                .collect();
+            eyre::ensure!(
+                all || chosen.len() == 1,
+                "{} escrows match {}: zkpool escrows",
+                chosen.len(),
+                escrow.unwrap_or_default()
+            );
+            for e in chosen {
+                let r = w.resolve(&e.c0, action, fee, &ctx, &p).await?;
+                report(
+                    &format!(
+                        "{}: {} {} ETH ({}){}",
+                        w.name,
+                        if reject { "reject" } else { "accept" },
+                        eth(e.value()),
+                        e.how,
+                        e.from.map(|m| format!(" from {m}")).unwrap_or_default()
+                    ),
+                    &r,
+                );
+            }
+        }
+        Cmd::Refund { escrow } => {
+            let (p, mut w) = (provider().await?, Wallet::load(&home, &name()?)?);
+            w.sync(&p, ctx.pool_address()?, &home).await?;
+            let chosen: Vec<_> = w
+                .sent
+                .iter()
+                .filter(|s| s.c0.starts_with(escrow.as_str()))
+                .cloned()
+                .collect();
+            let [s] = chosen.as_slice() else {
+                eyre::bail!(
+                    "{} sent escrows match {escrow}: zkpool escrows",
+                    chosen.len()
+                );
+            };
+            let r = w.refund(&s.c0, &ctx, &p).await?;
+            report(
+                &format!(
+                    "{}: refund {} ETH",
+                    w.name,
+                    eth(s.value.parse().unwrap_or(0))
+                ),
+                &r,
+            );
+        }
         Cmd::Sync => {
             let (p, mut w) = (provider().await?, Wallet::load(&home, &name()?)?);
             let got = w.sync(&p, ctx.pool_address()?, &home).await?;
             println!(
-                "{}: synced to block {} ({} leaves), {got} note(s) received, balance {} ETH",
+                "{}: synced to block {} ({} leaves), {got} note(s) received into escrow, balance {} ETH, {} escrow(s) to resolve",
                 w.name,
                 w.synced,
                 w.tree.size,
-                eth(w.balance())
+                eth(w.balance()),
+                w.escrows.len()
             );
         }
         Cmd::Balance => {
@@ -593,7 +785,7 @@ async fn main() -> eyre::Result<()> {
                 }
             }
             println!(
-                "{}: stopped; {got} note(s) received, balance {} ETH",
+                "{}: stopped; {got} note(s) received into escrow, balance {} ETH",
                 w.name,
                 eth(w.balance())
             );

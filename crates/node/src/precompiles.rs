@@ -83,8 +83,7 @@ fn verify(input: &[u8]) -> Result<Bytes, String> {
     let (root, proof) = input
         .split_first_chunk::<32>()
         .ok_or("ZK_VERIFY: input shorter than a pipeline root")?;
-    let fields =
-        emit_devnet_circuits::verify(root, proof).map_err(|e| format!("ZK_VERIFY: {e}"))?;
+    let fields = emit_circuits::verify(root, proof).map_err(|e| format!("ZK_VERIFY: {e}"))?;
     let mut out = Vec::with_capacity(64 + 32 * fields.len());
     out.extend(word(32));
     out.extend(word(fields.len() as u64));
@@ -180,7 +179,7 @@ mod tests {
 
     #[test]
     fn zk_verify_refuses_garbage() {
-        let root = emit_devnet_circuits::circuits::pipelines::member_transfer::ROOT;
+        let root = emit_circuits::circuits::pipelines::member_transfer::ROOT;
         let input = [root.as_slice(), &[0u8; 64]].concat();
         let out = zk_verify(&input, 10_000_000, 0).expect("runs");
         assert_eq!(out.status, PrecompileStatus::Revert);

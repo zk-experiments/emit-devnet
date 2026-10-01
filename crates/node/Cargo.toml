@@ -12,7 +12,7 @@ name = "emit-node"
 path = "src/main.rs"
 
 [dependencies]
-emit-devnet-circuits.workspace = true
+emit-circuits.workspace = true
 noir-zk-core.workspace = true
 noir-zk-backend.workspace = true
 zk-encryption-circuits.workspace = true

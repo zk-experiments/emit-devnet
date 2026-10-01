@@ -1,11 +1,12 @@
 # Every test the repository has, on every push and pull request:
 #
-#   noir       nargo fmt, nargo test, the circuits compiled and checked against their frozen pins
-#   contracts  forge fmt, forge test (the precompiles mocked)
 #   rust       cargo fmt, clippy, cargo test (offline and quick)
 #   e2e        cargo test -- --ignored: the holder binding proved, and the devnet test (a node spawned,
 #              the pool deployed, Alice and Bob registering and transacting, every balance checked)
 #   commitlint conventional commits (pull requests)
+#
+# The circuits and the contract are emit-protocol's, checked in its own CI; emit-devnet takes its
+# crates from crates.io.
 #
 # No job measures time or memory: the demo's timings are for the README, not for CI.
 name: CI
@@ -25,8 +26,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  NOIR_VERSION: 1.0.0-rc.3
-  NOIR_ZK_VERSION: 0.3.0
 
 jobs:
   commitlint:
@@ -42,80 +41,20 @@ jobs:
           fetch-depth: 0
       - uses: wagoid/commitlint-github-action@v6
 
-  noir:
-    name: Noir (fmt, test, freeze --check)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: false
-      # The noir-zk CLI links bb's static library against libc++.
-      - name: Install libc++
-        run: sudo apt-get update -q && sudo apt-get install -yq libc++-dev libc++abi-dev
-      - name: Cache the toolchains
-        id: toolchains
-        uses: actions/cache@v4
-        with:
-          path: ~/.toolchains
-          key: toolchains-noir-${{ env.NOIR_VERSION }}-noir-zk-${{ env.NOIR_ZK_VERSION }}
-      - name: Install nargo and the noir-zk CLI (per-version directories)
-        if: steps.toolchains.outputs.cache-hit != 'true'
-        run: |
-          nargo_home="$HOME/.toolchains/noir-$NOIR_VERSION"
-          mkdir -p "$nargo_home/bin"
-          curl -fsSL https://raw.githubusercontent.com/noir-lang/noirup/main/noirup -o "$nargo_home/bin/noirup"
-          chmod +x "$nargo_home/bin/noirup"
-          NARGO_HOME="$nargo_home" "$nargo_home/bin/noirup" --version "$NOIR_VERSION"
-          cargo install --locked noir-zk-cli --version "=$NOIR_ZK_VERSION" --root "$HOME/.toolchains/noir-zk-$NOIR_ZK_VERSION"
-      - name: Toolchain paths
-        run: |
-          echo "$HOME/.toolchains/noir-$NOIR_VERSION/bin" >> "$GITHUB_PATH"
-          echo "$HOME/.toolchains/noir-zk-$NOIR_ZK_VERSION/bin" >> "$GITHUB_PATH"
-      - name: Cache the bb CRS
-        uses: actions/cache@v4
-        with:
-          path: ~/.bb-crs
-          key: noir-zk-srs-0f238856e557-72b8cdad9da8
-      - name: Provision the SRS noir-zk pins
-        run: scripts/srs.sh
-      - name: nargo fmt --check
-        working-directory: crates/circuits/noir
-        run: nargo fmt --check
-      - name: nargo test
-        working-directory: crates/circuits/noir
-        run: nargo test --workspace
-      - name: nargo compile
-        working-directory: crates/circuits/noir
-        run: nargo compile --workspace
-      - name: The compiled circuits match their frozen pins
-        working-directory: crates/circuits
-        run: noir-zk freeze --target noir/target --out . --assets assets --library emit-devnet@0.2.0 --check
-
-  contracts:
-    name: Contracts (forge fmt, forge test)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: contracts
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
-      - uses: foundry-rs/foundry-toolchain@v1
-      - name: forge fmt --check
-        run: forge fmt --check
-      - name: forge test
-        run: forge test
-
   rust:
     name: Rust (fmt, clippy, test)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: emit-devnet
     steps:
       - uses: actions/checkout@v5
+        with:
+          path: emit-devnet
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
+          rust-src-dir: emit-devnet
       # noir-zk-backend links bb's static library against libc++.
       - name: Install libc++
         run: sudo apt-get update -q && sudo apt-get install -yq libc++-dev libc++abi-dev
@@ -129,11 +68,16 @@ jobs:
   e2e:
     name: Proving and the devnet (cargo test -- --ignored)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: emit-devnet
     steps:
       - uses: actions/checkout@v5
         with:
-          submodules: recursive
+          path: emit-devnet
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rust-src-dir: emit-devnet
       - uses: foundry-rs/foundry-toolchain@v1
       - name: Install libc++
         run: sudo apt-get update -q && sudo apt-get install -yq libc++-dev libc++abi-dev
@@ -144,9 +88,6 @@ jobs:
           key: noir-zk-srs-0f238856e557-72b8cdad9da8
       - name: Provision the SRS noir-zk pins
         run: scripts/srs.sh
-      - name: Build the contracts
-        working-directory: contracts
-        run: forge build
       - name: The holder binding, proved
         run: cargo test -p zkpool -- --ignored holder
       - name: The devnet end to end

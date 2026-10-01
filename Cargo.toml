@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/circuits", "crates/node", "crates/cli"]
+members = ["crates/node", "crates/cli"]
 resolver = "2"
 
 [workspace.package]
@@ -10,26 +10,27 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
-# noir-zk 0.3.0 (crates.io): layered registries, the generic pipeline kernels, Chonk via bb's FFI.
+# noir-zk 0.3.3 (crates.io): layered registries, the generic pipeline kernels, Chonk via bb's FFI.
 # Every layer below is bound with the same release.
-noir-zk-core = "=0.3.0"
-noir-zk-backend = { version = "=0.3.0", features = ["packs", "http"] }
-noir-zk-codegen = "=0.3.0"
-# The identity layer: eid-circuits v0.8.0 (noir-zk 0.3.0; families eid/dsc, eid/sod, eid/document).
-eid-circuits = { git = "https://github.com/zk-experiments/eid-circuits", tag = "v0.8.0", features = ["packs", "http"] }
-eid-prover = { git = "https://github.com/zk-experiments/eid-circuits", tag = "v0.8.0" }
+noir-zk-core = "=0.3.3"
+noir-zk-backend = { version = "=0.3.3", features = ["packs", "http"] }
+# eid-prover renders the eid steps' inputs for a registration (the tag of the eid-circuits release
+# emit-circuits wraps; eid-prover itself isn't on crates.io).
+eid-prover = { git = "https://github.com/zk-experiments/eid-circuits", tag = "v0.8.3" }
 csca-registry = { git = "https://github.com/zk-experiments/csca-registry", tag = "v0.3.1" }
-# The channel layer: zk-encryption v0.1.1 (on noir-zk 0.3.0; its frozen registry is still
-# zk-encryption@0.1.0's: the circuits, their pins and family roots unchanged; bytecode bundled).
-zk-encryption-circuits = { git = "https://github.com/zk-experiments/zk-encryption", tag = "v0.1.1", features = ["serde"] }
-emit-devnet-circuits = { path = "crates/circuits" }
+# The channel layer: zk-encryption-circuits 0.1.5 (crates.io; bytecode bundled), the one
+# emit-circuits wraps.
+zk-encryption-circuits = { version = "=0.1.5", features = ["serde"] }
+# The protocol (github.com/zk-experiments/emit-protocol): its values, the pool's ABI and the
+# circuits' registry.
+emit-protocol = "=0.1.0"
+emit-protocol-abi = "=0.1.0"
+emit-circuits = "=0.1.0"
 ark-ff = "0.6"
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
 toml = "0.9"
-ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 # Witness solving and proving are unusably slow unoptimised (noir-zk's note).
 [profile.dev]
