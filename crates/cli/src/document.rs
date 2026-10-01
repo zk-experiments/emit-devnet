@@ -1,6 +1,6 @@
 //! The six synthetic passports (`fixtures/documents.json`, from the experiments repository: a
 //! mock CSCA, the complete EF.SOD with its DSC, and DG1 each), the csca-registry of their CSCAs
-//! the devnet accepts, and the inputs of their registration's eid steps (eid-prover v0.8.0).
+//! the devnet accepts, and the inputs of their registration's eid steps (eid-prover v0.8.2).
 
 use csca_registry::output::Registry;
 use zk_encryption_circuits::wallet::Fr;

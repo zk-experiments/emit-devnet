@@ -26,7 +26,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   NOIR_VERSION: 1.0.0-rc.3
-  NOIR_ZK_VERSION: 0.3.0
+  NOIR_ZK_VERSION: 0.3.3
 
 jobs:
   commitlint:
