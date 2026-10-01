@@ -111,7 +111,7 @@ struct EmitArgs {
 fn main() {
     Cli::<EthereumChainSpecParser, EmitArgs>::parse()
         .run(async move |builder, args| {
-            let pins = emit_devnet_circuits::pins::Pins::embedded();
+            let pins = emit_circuits::pins::Pins::embedded();
             let report = tokio::task::spawn_blocking(move || pins.check(args.pins_offline))
                 .await?
                 .map_err(|e| eyre::eyre!(e))?;

@@ -15,8 +15,7 @@ fn info_prints_the_pinned_deployment() {
         String::from_utf8_lossy(&out.stderr)
     );
     let s = String::from_utf8_lossy(&out.stdout);
-    let pins: toml::Table = toml::from_str(include_str!("../../../pins.toml")).expect("pins");
-    let root = pins["deployment"]["root"].as_str().expect("root");
+    let root = emit_circuits::pins::Pins::embedded().deployment.root;
     assert!(s.contains(&format!("deployment_root   {root}")), "{s}");
     assert!(s.contains("fixtures_registry 0x"), "{s}");
 }

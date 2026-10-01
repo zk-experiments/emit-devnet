@@ -1,36 +1,15 @@
-//! The pool contract as the wallet sees it: its ABI (contracts/src/EmitV2Pool.sol), the transact
-//! call, and its logs grouped per transaction.
+//! The pool contract as the wallet sees it: emit-protocol-abi's `EmitV2Pool`, its deploy, the
+//! transact, resolve and refund calls, and its logs grouped per transaction.
 
 use alloy::primitives::{Address, B256, Bytes, U256};
 use alloy::providers::Provider;
 use alloy::rpc::types::{Filter, Log};
 use alloy::sol_types::SolEvent;
+use emit_protocol::{Envelope as Sealed, EscrowLog};
+pub use emit_protocol_abi::EmitV2Pool;
 use zk_encryption_circuits::wallet::Fr;
 use zk_encryption_circuits::wallet::emit::{Envelope, Kem};
 use zk_encryption_circuits::wallet::grumpkin::Point;
-use zk_encryption_circuits::wallet::lattice::Ciphertext;
-
-#[allow(clippy::too_many_arguments)]
-mod abi {
-    alloy::sol! {
-        #[sol(rpc)]
-        contract EmitV2Pool {
-            event NewNullifier(bytes32 nullifier);
-            event NewCommitment(bytes32 commitment, uint256 leafIndex);
-            event Envelope(bytes32 cT, bytes32[2] e, bytes32 tag, bytes32 ct, bytes pqCiphertext, bytes32[6] cNote, bytes32[6] cId);
-            event IdentityRegistered(bytes32 leaf, uint256 index, uint256 expiry);
-
-            function transact(bytes32 pipeline, bytes32 root, bytes32[2] nullifiers, bytes32[2] commitments, uint256 vPubIn, uint256 vPubOut, uint256 fee, address payout, bytes pqCiphertext, bytes proof) external payable;
-            function register(bytes proof) external;
-            function registrationScope(uint256 epoch) external view returns (uint256);
-            function IDENTITY_EPOCH() external view returns (uint256);
-            function RENEWAL_WINDOW() external view returns (uint256);
-            function currentRoot() external view returns (uint256);
-            function nextIndex() external view returns (uint256);
-        }
-    }
-}
-pub use abi::EmitV2Pool;
 
 pub fn b256(f: &Fr) -> B256 {
     use zk_encryption_circuits::wallet::poseidon::FieldHex;
@@ -48,30 +27,54 @@ pub struct TxEvents {
     pub tx: B256,
     pub block: u64,
     pub nullifiers: Vec<Fr>,
+    /// Leaves appended: (commitment, leaf index).
     pub commitments: Vec<(Fr, u64)>,
-    pub envelope: Option<Envelope>,
+    pub envelope: Option<EnvelopeEvent>,
+    /// The escrow events (`Escrowed`, `EscrowClosed`), in log order.
+    pub escrow: Vec<EscrowLog>,
     /// Identity cache registrations: (leaf, index, expiry).
     pub identities: Vec<(Fr, u64, u64)>,
 }
 
-fn envelope(e: &EmitV2Pool::Envelope) -> eyre::Result<Envelope> {
-    let f = |b: &B256| fr(b);
-    let ct = Ciphertext::from_bytes(&e.pqCiphertext)
-        .map_err(|e| eyre::eyre!("Envelope: pqCiphertext: {e:?}"))?;
-    Ok(Envelope {
-        c_t: f(&e.cT),
-        kem: Kem {
-            ephemeral: Point {
-                x: f(&e.e[0]),
-                y: f(&e.e[1]),
+/// The `Envelope` event: the session's public outputs and the sealed note opening. The lattice
+/// ciphertext and the sealed DG1 come off-chain, in the protocol's envelope.
+#[derive(Clone, Debug)]
+pub struct EnvelopeEvent {
+    pub c_t: Fr,
+    pub ephemeral: Point,
+    pub tag: Fr,
+    pub ct_commitment: Fr,
+    pub c_note: [Fr; 6],
+}
+
+impl EnvelopeEvent {
+    /// The channel's `Envelope` (what the receiver scans), with the off-chain part.
+    pub fn with(&self, sealed: &Sealed) -> eyre::Result<Envelope> {
+        Ok(Envelope {
+            c_t: self.c_t,
+            kem: Kem {
+                ephemeral: self.ephemeral,
+                tag: self.tag,
+                ct_commitment: self.ct_commitment,
+                ct: sealed.ciphertext()?,
             },
-            tag: f(&e.tag),
-            ct_commitment: f(&e.ct),
-            ct,
+            c_note: self.c_note,
+            c_id: sealed.c_id()?,
+        })
+    }
+}
+
+fn envelope(e: &EmitV2Pool::Envelope) -> EnvelopeEvent {
+    EnvelopeEvent {
+        c_t: fr(&e.cT),
+        ephemeral: Point {
+            x: fr(&e.e[0]),
+            y: fr(&e.e[1]),
         },
+        tag: fr(&e.tag),
+        ct_commitment: fr(&e.ct),
         c_note: e.cNote.map(|b| fr(&b)),
-        c_id: e.cId.map(|b| fr(&b)),
-    })
+    }
 }
 
 /// The pool's events in blocks `from..=to`, grouped by transaction.
@@ -107,7 +110,11 @@ pub async fn events(
             }
             Some(&EmitV2Pool::Envelope::SIGNATURE_HASH) => {
                 let e = log.log_decode::<EmitV2Pool::Envelope>()?.inner.data;
-                t.envelope = Some(envelope(&e)?);
+                t.envelope = Some(envelope(&e));
+            }
+            Some(&EmitV2Pool::Escrowed::SIGNATURE_HASH)
+            | Some(&EmitV2Pool::EscrowClosed::SIGNATURE_HASH) => {
+                t.escrow.extend(emit_protocol_abi::escrow_log(&log)?);
             }
             Some(&EmitV2Pool::IdentityRegistered::SIGNATURE_HASH) => {
                 let e = log
@@ -134,7 +141,6 @@ pub struct Transact {
     pub v_out: u128,
     pub fee: u128,
     pub payout: Address,
-    pub pq_ciphertext: Vec<u8>,
     pub proof: Vec<u8>,
 }
 
@@ -157,11 +163,20 @@ pub async fn transact(p: &impl Provider, pool: Address, t: Transact) -> eyre::Re
             U256::from(t.v_out),
             U256::from(t.fee),
             t.payout,
-            Bytes::from(t.pq_ciphertext),
             Bytes::from(t.proof),
         )
         .value(U256::from(t.v_in));
     send(call).await
+}
+
+/// Resolves an escrow with a member_resolve proof.
+pub async fn resolve(p: &impl Provider, pool: Address, proof: Vec<u8>) -> eyre::Result<Sent> {
+    send(EmitV2Pool::new(pool, p).resolve(Bytes::from(proof))).await
+}
+
+/// Hands an escrow whose window passed back to its sender.
+pub async fn refund(p: &impl Provider, pool: Address, c0: Fr) -> eyre::Result<Sent> {
+    send(EmitV2Pool::new(pool, p).refund(b256(&c0))).await
 }
 
 /// Registers in the identity cache with an identity_register proof.

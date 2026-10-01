@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts the devnet node and deploys the pool: `source scripts/devnet.sh` exports ZKPOOL_POOL,
+# Starts the devnet node and deploys the pool (zkpool deploy): `source scripts/devnet.sh` exports ZKPOOL_POOL,
 # ZKPOOL_HOME and NODE_PID. DEVNET (default .devnet) holds the chain, the logs and the wallets.
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -30,14 +30,9 @@ for _ in $(seq 1 120); do
 done
 grep -E '^(pins|precompiles):' "$DEVNET/node.log" || true
 
-info=$("$BIN/zkpool" --rpc "$RPC" info)
-export DEPLOYMENT_ROOT=$(awk '/^deployment_root/ {print $2}' <<<"$info")
-export REGISTER_PIPELINE=$(awk '/^identity_register/ {print $2}' <<<"$info")
-export MEMBER_PIPELINE=$(awk '/^member_transfer/ {print $2}' <<<"$info")
-export REGISTRY_ROOTS="$(awk '/^fixtures_registry/ {print $2}' <<<"$info"),$(awk '/^csca_registry/ {print $2}' <<<"$info")"
-(cd "$ROOT/contracts" && forge script script/Deploy.s.sol --rpc-url "$RPC" --broadcast \
-  --private-key "$DEPLOYER_KEY" >"$DEVNET/deploy.log" 2>&1) || { cat "$DEVNET/deploy.log"; exit 1; }
-export ZKPOOL_POOL=$(awk '/^  EmitV2Pool 0x/ {print $2}' "$DEVNET/deploy.log")
+# The pool from emit-protocol-abi's bytecode, for the pinned deployment and both registry roots.
+"$BIN/zkpool" --rpc "$RPC" deploy --key "$DEPLOYER_KEY" >"$DEVNET/deploy.log" 2>&1 || { cat "$DEVNET/deploy.log"; exit 1; }
+export ZKPOOL_POOL=$(awk '/^EmitV2Pool 0x/ {print $2}' "$DEVNET/deploy.log")
 export ZKPOOL_HOME="$DEVNET/wallets" ZKPOOL_RPC="$RPC" ZKPOOL_WS="ws://127.0.0.1:$WS_PORT"
 export NODE_PID
 echo "node pid $NODE_PID, rpc $RPC, EmitV2Pool $ZKPOOL_POOL"
