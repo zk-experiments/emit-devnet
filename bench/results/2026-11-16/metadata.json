@@ -1,0 +1,21 @@
+{
+  "date": "2026-11-16T15:14:36.702Z",
+  "cpu": "Apple M3 Max",
+  "logicalCores": 14,
+  "memGiB": 36,
+  "os": "Darwin 25.6.0",
+  "node": "v24.15.0",
+  "v8": "13.6.233.17-node.48",
+  "bbJs": "7.0.0-nightly.20261110",
+  "acvmJs": "1.0.0-rc.5",
+  "commit": "e5c66f5",
+  "samples": 5,
+  "threads": [
+    1,
+    6
+  ],
+  "nodeBaseline": {
+    "peakRss": 73711616,
+    "peakFootprint": 32296632
+  }
+}

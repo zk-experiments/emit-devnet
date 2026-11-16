@@ -10,7 +10,7 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
-# noir-zk 0.3.3 (crates.io): layered registries, the generic pipeline kernels, Chonk via bb's FFI.
+# noir-zk 0.3.3 (crates.io, patched below): layered registries, the generic pipeline kernels, Chonk via bb's FFI.
 # Every layer below is bound with the same release.
 noir-zk-core = "=0.3.3"
 noir-zk-backend = { version = "=0.3.3", features = ["packs", "http"] }
@@ -35,3 +35,14 @@ toml = "0.9"
 # Witness solving and proving are unusably slow unoptimised (noir-zk's note).
 [profile.dev]
 opt-level = 3
+
+# noir-zk on bb 7.0.0-nightly.20261110 / Noir 1.0.0-rc.5 (zk-experiments/noir-zk#11) and the
+# emit-protocol built on it, until both are released: one noir-zk for every layer.
+[patch.crates-io]
+noir-zk-core = { git = "https://github.com/zk-experiments/noir-zk", rev = "0d022abf80cec1f2e28a7bc2008d0579af4ae141" }
+noir-zk-kernels = { git = "https://github.com/zk-experiments/noir-zk", rev = "0d022abf80cec1f2e28a7bc2008d0579af4ae141" }
+noir-zk-backend = { git = "https://github.com/zk-experiments/noir-zk", rev = "0d022abf80cec1f2e28a7bc2008d0579af4ae141" }
+noir-zk-codegen = { git = "https://github.com/zk-experiments/noir-zk", rev = "0d022abf80cec1f2e28a7bc2008d0579af4ae141" }
+emit-protocol = { git = "https://github.com/zk-experiments/emit-protocol", rev = "fcf30900219ca0382450fa6e6035bed944f0224a" }
+emit-protocol-abi = { git = "https://github.com/zk-experiments/emit-protocol", rev = "fcf30900219ca0382450fa6e6035bed944f0224a" }
+emit-circuits = { git = "https://github.com/zk-experiments/emit-protocol", rev = "fcf30900219ca0382450fa6e6035bed944f0224a" }

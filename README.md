@@ -112,14 +112,14 @@ emit-circuits' `pins.toml` is compiled into the node and the wallet and checked 
 
 | what | version / pin | from | checked |
 |---|---|---|---|
-| noir-zk (core, backend, codegen, kernels) | `=0.3.3` | crates.io | kernels family root `0x297133fa…ae43` and version |
+| noir-zk (core, backend, codegen, kernels) | `=0.3.3`, patched to noir-zk#11 (`0d022abf`) | git | kernels family root `0x094a0086…5701` and version |
 | the protocol's layers (emit: transfer_holder, dg1_envelope, escrow_resolve; identity_cache: register, member) | `emit-protocol@0.1.0`, family roots `transfer_holder` `0x18ee3ff5…efc7`, `dg1_envelope` `0x0b7d4c28…3119`, `escrow_resolve` `0x04c880b8…2757`, `register` `0x1d0042a0…c1eb`, `member` `0x00f3d510…0a75` | emit-protocol (`noir/`, frozen into `emit-circuits` with `noir-zk freeze`, bytecode bundled) | library and every family root; bytecode against its pin when loaded |
 | channel layer | `zk-encryption-circuits` 0.1.5 from crates.io (library `zk-encryption@0.1.3`, on noir-zk 0.3.3) | bytecode bundled in `zk-encryption-circuits`; catalog `https://circuits.zk-experiments.dev/zk-encryption/0.1.5/catalog.json` | catalog SHA-256 `b797c5ed…bb81`; its families' roots equal the compiled-in ones |
 | identity layer | `eid-circuits` 0.8.3 from crates.io (frozen library `eid-circuits@0.8.2`), `eid-prover` by git tag `v0.8.3` | DSC, SOD and document steps: packs on `https://circuits.zk-eid.dev`, catalog `catalog@0.8.2.json` (0.8.3 didn't refreeze: the same pinned bytecode) | catalog SHA-256 `4de0e4f0…53eb`, its version and its DSC/SOD/document labels in eid's registry; each pack's SHA-256 against the catalog; every unpacked `.b64` / `.vk` against eid's registry pins |
 | CSCA registry | tag `registry-20260928-1039`, root `0x27bef40a…02a2` | `https://registry.zk-eid.dev/<tag>/registry.json` | file SHA-256 `17a21c0f…4444` and `commitment.root` |
-| deployment | root `0x02d515b4…a88a`; `identity_register` `0x0a2bcc6a…55cf` (4); `member_transfer` `0x0185c63e…ee6c` (5); `member_resolve` `0x23173a42…6853` (2) | computed by emit-circuits' codegen | equal to the generated constants |
+| deployment | root `0x2beb20f9…1baf`; `identity_register` `0x069782dc…1a0e` (4); `member_transfer` `0x22f795d8…6596` (5); `member_resolve` `0x285c421a…1af2` (2) | computed by emit-circuits' codegen | equal to the generated constants |
 | pool contract | `EmitV2Pool` from emit-protocol (solc 0.8.30) | `emit-protocol-abi`'s artifact (ABI and bytecode); `zkpool deploy` deploys it | emit-protocol's CI checks the artifact against `forge build` |
-| toolchain | bb 7.0.0-nightly.20260927 (via `barretenberg-rs`), reth v2.6.0 | crates.io, git tag | the Noir and Solidity toolchains are emit-protocol's |
+| toolchain | bb 7.0.0-nightly.20261110 (via `barretenberg-rs`), reth v2.6.0 | crates.io, git tag | the Noir and Solidity toolchains are emit-protocol's |
 
 Caches: `~/.cache/emit-protocol` (`$EMIT_PROTOCOL_CACHE`): the pinned files, eid's unpacked packs (the demo needs common, rsa4096, rsa2048, bp384, bp256: about 300 MB). The prover reads bb's CRS from `~/.bb-crs` (`$BB_CRS_PATH`), checked against noir-zk's pinned hashes; `scripts/srs.sh` provisions it.
 
@@ -183,10 +183,10 @@ Starts `emit-node node --dev` on `genesis.json` (datadir `.devnet/chain`, http 8
 
 ```
 pins: ok  emit-protocol layers emit-protocol@0.1.0 family roots (transfer_holder, dg1_envelope, escrow_resolve, register, member)
-pins: ok  deployment root 0x02d515b4c11b8b715af4d6fa14644a3e7e8dcc52dd9923f3424f1304561da88a
-pins: ok  pipeline identity_register root 0x0a2bcc6a85b08c9ee3046ec9387b53a583e188447c51ce7a45cc989702e855cf length 4
-pins: ok  pipeline member_transfer root 0x0185c63e50408ddc230b73c27e117be74fe278a964be0e45def5cdc527a8ee6c length 5
-pins: ok  pipeline member_resolve root 0x23173a425869da40ad85bb78639280b69ccc656121c183cfba1e6e575bcd6853 length 2
+pins: ok  deployment root 0x2beb20f9f1597700f9338a78c3e70967f2f9b10a91341faa9c6a8c89c84e1baf
+pins: ok  pipeline identity_register root 0x069782dc3636269cc75fd9feafabb5cae7f4df81e7b11c90248b379b36b41a0e length 4
+pins: ok  pipeline member_transfer root 0x22f795d8c0f659fccc7ef8fce423d7f95dcf81faa7b918a54bfac39470d16596 length 5
+pins: ok  pipeline member_resolve root 0x285c421af2895cd9adaeff4ed5a3aa2baa7f9fc701f579fa2bbfd3f53cf71af2 length 2
 …
 precompiles: ZK_VERIFY at 0x0000000000000000000000000000000000000100 (1200000 gas + 3/word), POSEIDON2 at 0x0000000000000000000000000000000000000101 (60 + 360/permutation)
 node pid …, rpc http://127.0.0.1:8545, EmitV2Pool 0x5FbDB2315678afecb367f032d93F642f64180aa3
