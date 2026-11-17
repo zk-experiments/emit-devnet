@@ -1,0 +1,11 @@
+[package]
+name = "age_verify"
+type = "bin"
+authors = ["Outbe experiments"]
+compiler_version = ">=1.0.0"
+
+[dependencies]
+identity_cache = { path = "../../../.cache/emit-protocol/noir/lib/identity_cache" }
+emit = { path = "../../../.cache/emit-protocol/noir/lib/emit" }
+eid_steps = { git = "https://github.com/zk-experiments/eid-circuits", tag = "v0.8.3", directory = "noir/lib/steps" }
+eid_der = { git = "https://github.com/zk-experiments/eid-circuits", tag = "v0.8.3", directory = "noir/lib/der" }

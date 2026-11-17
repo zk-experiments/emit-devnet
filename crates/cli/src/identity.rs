@@ -258,6 +258,68 @@ mod tests {
         Ok(proof)
     }
 
+    /// Folds identity_register for fixture document `name`, as `Wallet::register` does but
+    /// offline (fixed date and scope).
+    fn register_fold(name: &str) -> eyre::Result<Vec<u8>> {
+        use emit_circuits::circuits::families::{
+            KernelStepDocument, KernelStepDsc, KernelStepRegister, KernelStepSod,
+        };
+        use emit_circuits::circuits::pipelines::identity_register;
+        use noir_zk_core::StepFamily;
+        let doc = crate::document::by_name(name)?;
+        let (now, expiry) = (1_790_467_200, 1_790_812_799);
+        let (w, salt) = doc.eid(&crate::document::registry()?, now, "0x2a")?;
+        let labels = [w.selection.dsc, w.selection.sod, w.selection.document];
+        let pins = emit_circuits::pins::Pins::embedded();
+        pins.check(false).map_err(|e| eyre::eyre!(e))?;
+        let pool = emit_circuits::setup::pool(&pins, &labels.iter().cloned().collect(), &|l| {
+            eprintln!("setup: {l}")
+        })
+        .map_err(|e| eyre::eyre!("{e}"))?;
+        let artifacts = pool.merged();
+        let e = |what: &'static str| move |err: noir_zk_core::Error| eyre::eyre!("{what}: {err}");
+        let (proof, _) = identity_register::fold(&artifacts)
+            .map_err(e("pipeline"))?
+            .app(KernelStepDsc::select(&labels[0], w.dsc).map_err(e("dsc"))?)
+            .map_err(e("dsc"))?
+            .app(KernelStepSod::select(&labels[1], w.sod).map_err(e("sod"))?)
+            .map_err(e("sod"))?
+            .app(KernelStepDocument::select(&labels[2], w.document).map_err(e("document"))?)
+            .map_err(e("document"))?
+            .app(
+                KernelStepRegister::select(
+                    "register",
+                    register_inputs(salt, &doc.dg1, Fr::from(11u64), expiry, Fr::from(0x2bd1u64)),
+                )
+                .map_err(e("register"))?,
+            )
+            .map_err(e("register"))?
+            .hiding(&emit_circuits::circuits::DEPLOYMENT)
+            .map_err(e("prove"))?;
+        let proof = proof.to_bytes();
+        emit_circuits::verify(&identity_register::ROOT, &proof)?;
+        Ok(proof)
+    }
+
+    /// Writes the WASM benchmark's fixtures (bench/wasm): each pipeline's fold, one dir per
+    /// pipeline, needs noir-zk's NOIR_ZK_BENCH_DUMP (see bench/README.md).
+    #[test]
+    #[ignore = "proves; run via bench/fixtures.sh"]
+    fn dump_bench_fixtures() {
+        let dir = std::path::PathBuf::from(std::env::var("NOIR_ZK_BENCH_DUMP").expect("set"));
+        let alice = Fr::from(11u64);
+        member_deposit(alice, alice).expect("member_transfer");
+        member_accept(alice, alice).expect("member_resolve");
+        for doc in ["us_rsa4096_rsa2048", "de_bp384_bp256"] {
+            register_fold(doc).expect(doc);
+            std::fs::rename(
+                dir.join("identity_register"),
+                dir.join(format!("identity_register_{doc}")),
+            )
+            .expect("rename");
+        }
+    }
+
     /// The kernel binds escrow_resolve's holder tag to identity_member's: only a registered owner
     /// resolves (the resolve alone is satisfiable by any key; the fold is not).
     #[test]

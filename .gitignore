@@ -8,3 +8,5 @@ contracts/broadcast/
 *.log
 .env
 .env.*
+
+.idea

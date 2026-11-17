@@ -1,0 +1,36 @@
+{
+  "runtime": "native",
+  "date": "2026-11-16T21:14:56.383Z",
+  "cpu": "Apple M5 Pro",
+  "logical_cores": 18,
+  "memory_bytes": 51539607552,
+  "os": "Darwin 27.2.0",
+  "node": "v24.18.0",
+  "source": {
+    "bb": "7.0.0-nightly.20261110",
+    "eid": "0.8.3",
+    "emit_protocol": "fcf30900219ca0382450fa6e6035bed944f0224a",
+    "noir": "1.0.0-rc.5",
+    "noir_zk": "0d022abf80cec1f2e28a7bc2008d0579af4ae141",
+    "passport_fixture_sha256": "f1e793a556f1160ce4fa2b709de5f860e8dc40119608b261be0e4d3235046f2b",
+    "pr": "https://github.com/zk-experiments/emit-devnet/pull/3",
+    "pr_revision": "ce610c62a51240d74a7fcf5a6b6644e2a7cea9ea"
+  },
+  "samples": 1,
+  "threads": [
+    1,
+    6
+  ],
+  "verify_samples": 20,
+  "verify_warmups": 1,
+  "proving_policy": "fresh actual native binary per sample; fixture, program and key initialization excluded from witness+prove; no pk_decode metric",
+  "memory_method": "macOS /usr/bin/time -l directly wraps the native binary; whole native process peak footprint and RSS, including initialization and keys",
+  "worker_policy": "1/6 are requested backend worker configurations, not a guarantee of total OS threads; requested_threads and actual_threads record reported configuration. Native MSM may use bounded nested worker pools.",
+  "circuit_stats_method": "Shared Barretenberg WASM chonkStats for structure only (no proving or verification); Rust counts from prepared native manifests",
+  "backend_notes": {
+    "chonk": "Exact PR Chonk app + registry/kernel/hiding fold",
+    "groth16": "Arkworks Groth16: shared ACIR application relations and private link equalities; canonical compressed proof. Native QAP streams the prepared r1cs.bin matrix plan through BufReader; WASM has a RAM-loaded plan.",
+    "provekit": "ProveKit low-level WHIR over the same merged R1CS; non-SPARK verifier retains full R1CS"
+  },
+  "phone_measurements": false
+}

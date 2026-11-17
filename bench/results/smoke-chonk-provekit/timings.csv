@@ -1,0 +1,29 @@
+pipeline,implementation,threads,sample,status,witness_prove_ms,verify_ms,peak_footprint_bytes,peak_rss_bytes,proof_bytes,compressed_proof_bytes,error
+"identity_register_de_bp384_bp256","chonk","1","1","ok","18588.362875","88.2925839999989","1286340712","1470758912","40192","23552",""
+"identity_register_de_bp384_bp256","chonk","6","1","ok","7551.653333999999","34.574791000000005","1370973000","1551958016","40192","23552",""
+"identity_register_de_bp384_bp256","provekit","1","1","error","","","4047363560","4089626624","","","Error: attempted to take ownership of Rust value while it was borrowed
+    at __wbg___wbindgen_throw_6ddd609b62940d55 (file:///Users/m5-vladimir/work/outbe/emit-devnet-passport-comparison/bench/compare/provekit/pkg/single/passport_provekit.js:185:19)
+    at passport_provekit.wasm.wasm_bindgen[b08fd4c23ef07a32]::__wbindgen_throw (wasm://wasm/passport_provekit.wasm-01d59b6a:wasm-function[5431]:0x453977)
+    at passport_provekit.wasm.wasm_bindgen[b08fd4c23ef07a32]::throw_str (wasm://wasm/passport_provekit.wasm-01d59b6a:wasm-function[5223]:0x453102)
+    at passport_provekit.wasm.__wbg_session_free (wasm://wasm/passport_provekit.wasm-01d59b6a:wasm-function[3161]:0x421834)
+    at Session.free (file:///Users/m5-vladimir/work/outbe/emit-devnet-passport-comparison/bench/compare/provekit/pkg/single/passport_provekit.js:12:14)
+    at Object.dispose (file:///Users/m5-vladimir/work/outbe/emit-devnet-passport-comparison/bench/compare/provekit.mjs:58:40)
+    at rustSample (file:///Users/m5-vladimir/work/outbe/emit-devnet-passport-comparison/bench/wasm/compare.mjs:66:28)
+    at async file:///Users/m5-vladimir/work/outbe/emit-devnet-passport-comparison/bench/wasm/compare.mjs:157:55"
+"identity_register_de_bp384_bp256","provekit","6","1","error","","","4173338128","4207755264","","","Error: attempted to take ownership of Rust value while it was borrowed
+    at __wbg___wbindgen_throw_6ddd609b62940d55 (file:///Users/m5-vladimir/work/outbe/emit-devnet-passport-comparison/bench/compare/provekit/pkg/threads/passport_provekit.js:255:19)
+    at passport_provekit.wasm.wasm_bindgen[e8880699786669a7]::__wbindgen_throw (wasm://wasm/passport_provekit.wasm-01e738f6:wasm-function[5559]:0x4911df)
+    at passport_provekit.wasm.wasm_bindgen[e8880699786669a7]::throw_str (wasm://wasm/passport_provekit.wasm-01e738f6:wasm-function[5342]:0x490900)
+    at passport_provekit.wasm.__wbg_session_free (wasm://wasm/passport_provekit.wasm-01e738f6:wasm-function[2178]:0x408d4f)
+    at Session.free (file:///Users/m5-vladimir/work/outbe/emit-devnet-passport-comparison/bench/compare/provekit/pkg/threads/passport_provekit.js:13:14)
+    at Object.dispose (file:///Users/m5-vladimir/work/outbe/emit-devnet-passport-comparison/bench/compare/provekit.mjs:58:40)
+    at rustSample (file:///Users/m5-vladimir/work/outbe/emit-devnet-passport-comparison/bench/wasm/compare.mjs:66:28)
+    at async file:///Users/m5-vladimir/work/outbe/emit-devnet-passport-comparison/bench/wasm/compare.mjs:157:55"
+"identity_register_us_rsa4096_rsa2048","chonk","1","1","ok","11974.040665","91.69620799999939","749755448","793067520","40192","23552",""
+"identity_register_us_rsa4096_rsa2048","chonk","6","1","ok","3718.2137510000002","35.255584","826589720","865288192","40192","23552",""
+"identity_register_us_rsa4096_rsa2048","provekit","1","1","ok","20412.200875","2542.6243749999994","2577341088","2620260352","516406","",""
+"identity_register_us_rsa4096_rsa2048","provekit","6","1","ok","6664.717958","940.2648749999998","2842037136","2878226432","517750","",""
+"age_verify","chonk","1","1","ok","5094.083707","92.0282500000003","718099688","772390912","40192","23552",""
+"age_verify","chonk","6","1","ok","1463.8579590000002","35.34837500000003","794721184","862371840","40192","23552",""
+"age_verify","provekit","1","1","ok","234.195708","66.52758299999999","98782136","143392768","327382","",""
+"age_verify","provekit","6","1","ok","102.47958299999999","32.68275","205193992","242663424","326870","",""

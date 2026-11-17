@@ -1,0 +1,560 @@
+{
+  "metadata": {
+    "runtime": "browser",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+    "logical_cores": 18,
+    "secure_context": true,
+    "cross_origin_isolated": true,
+    "source": {
+      "bb": "7.0.0-nightly.20261110",
+      "eid": "0.8.3",
+      "emit_protocol": "fcf30900219ca0382450fa6e6035bed944f0224a",
+      "noir": "1.0.0-rc.5",
+      "noir_zk": "0d022abf80cec1f2e28a7bc2008d0579af4ae141",
+      "passport_fixture_sha256": "f1e793a556f1160ce4fa2b709de5f860e8dc40119608b261be0e4d3235046f2b",
+      "pr": "https://github.com/zk-experiments/emit-devnet/pull/3",
+      "pr_revision": "ce610c62a51240d74a7fcf5a6b6644e2a7cea9ea"
+    },
+    "device_label": "Desktop Chrome smoke; not a phone result",
+    "date": "2026-11-16T20:07:51.968Z",
+    "samples": 1,
+    "threads": [
+      1,
+      6
+    ],
+    "verify_warmups": 1,
+    "verify_samples": 20
+  },
+  "circuits": {
+    "identity_register_de_bp384_bp256": {
+      "kind": "registration",
+      "public_fields": 6,
+      "chonk": [
+        {
+          "name": "dsc_ecdsa_bp384_sha384_tbs700",
+          "kind": "app",
+          "gates": 336148,
+          "opcodes": 146312
+        },
+        {
+          "name": "kernel_init",
+          "kind": "kernel",
+          "gates": 12375,
+          "opcodes": 344
+        },
+        {
+          "name": "sod_ecdsa_bp256_sha256_tbs700",
+          "kind": "app",
+          "gates": 132966,
+          "opcodes": 42461
+        },
+        {
+          "name": "kernel_step",
+          "kind": "kernel",
+          "gates": 25926,
+          "opcodes": 624
+        },
+        {
+          "name": "document_sha256_sha512_lds512",
+          "kind": "app",
+          "gates": 77571,
+          "opcodes": 21641
+        },
+        {
+          "name": "kernel_step",
+          "kind": "kernel",
+          "gates": 25926,
+          "opcodes": 624
+        },
+        {
+          "name": "register",
+          "kind": "app",
+          "gates": 4202,
+          "opcodes": 834
+        },
+        {
+          "name": "kernel_step",
+          "kind": "kernel",
+          "gates": 25926,
+          "opcodes": 624
+        },
+        {
+          "name": "kernel_hiding",
+          "kind": "hiding",
+          "gates": 37498,
+          "opcodes": 150
+        }
+      ],
+      "algorithms": [
+        "dsc_ecdsa_bp384_sha384_tbs700",
+        "sod_ecdsa_bp256_sha256_tbs700",
+        "document_sha256_sha512_lds512",
+        "register"
+      ],
+      "groth16": {
+        "stats": {
+          "constraints": 8007872,
+          "witnesses": 7960025,
+          "public_inputs": 6,
+          "circuit_bytes": 4207327,
+          "prover_key_bytes": 1542040880,
+          "verifier_key_bytes": 456,
+          "matrix_plan_bytes": 546697920,
+          "domain_size": 8388608,
+          "decoded_query_bytes": 3084080640,
+          "wasm32_lower_bound_bytes": 3875672576
+        },
+        "relation_id": "527a5000f379fc6b3073bfd7ef029a472547b1840b98ea1795d303837dc26d82",
+        "manifest_sha256": "a67d15bf8519a7514c94f8f42e497e28108a86cf0a64232f484f81fbf7e6863f"
+      },
+      "provekit": {
+        "stats": {
+          "constraints": 8007872,
+          "witnesses": 7960032,
+          "circuit_bytes": 4207327,
+          "prover_key_bytes": 210972995,
+          "verifier_key_bytes": 210972995
+        },
+        "relation_id": "2c638da97dff76e9e15a5cf021a1eb5eacf59ebfd5cf88a01e8256126306182d",
+        "manifest_sha256": "139fe671321159ace75834a11cc30fed45c5600896b76d8dd7faea48edaf02d4"
+      }
+    },
+    "identity_register_us_rsa4096_rsa2048": {
+      "kind": "registration",
+      "public_fields": 6,
+      "chonk": [
+        {
+          "name": "dsc_rsa_pkcs1v15_4096_sha256_tbs700",
+          "kind": "app",
+          "gates": 151951,
+          "opcodes": 21564
+        },
+        {
+          "name": "kernel_init",
+          "kind": "kernel",
+          "gates": 12375,
+          "opcodes": 344
+        },
+        {
+          "name": "sod_rsa_pkcs1v15_2048_sha256_tbs700",
+          "kind": "app",
+          "gates": 74343,
+          "opcodes": 19411
+        },
+        {
+          "name": "kernel_step",
+          "kind": "kernel",
+          "gates": 25926,
+          "opcodes": 624
+        },
+        {
+          "name": "document_sha256_sha256_lds512",
+          "kind": "app",
+          "gates": 65966,
+          "opcodes": 8840
+        },
+        {
+          "name": "kernel_step",
+          "kind": "kernel",
+          "gates": 25926,
+          "opcodes": 624
+        },
+        {
+          "name": "register",
+          "kind": "app",
+          "gates": 4202,
+          "opcodes": 834
+        },
+        {
+          "name": "kernel_step",
+          "kind": "kernel",
+          "gates": 25926,
+          "opcodes": 624
+        },
+        {
+          "name": "kernel_hiding",
+          "kind": "hiding",
+          "gates": 37498,
+          "opcodes": 150
+        }
+      ],
+      "algorithms": [
+        "dsc_rsa_pkcs1v15_4096_sha256_tbs700",
+        "sod_rsa_pkcs1v15_2048_sha256_tbs700",
+        "document_sha256_sha256_lds512",
+        "register"
+      ],
+      "groth16": {
+        "stats": {
+          "constraints": 3977858,
+          "witnesses": 3952557,
+          "public_inputs": 6,
+          "circuit_bytes": 798195,
+          "prover_key_bytes": 766628272,
+          "verifier_key_bytes": 456,
+          "matrix_plan_bytes": 294465336,
+          "domain_size": 4194304,
+          "decoded_query_bytes": 1533255424,
+          "wasm32_lower_bound_bytes": 1928172928
+        },
+        "relation_id": "d0715a25604f1e0ad6f9a64e04c087f215c97bc5be29aeec808e5083d7760062",
+        "manifest_sha256": "ca9c670a2a5603e9e496fa5d5a2ceb0dbf3b82b4a6fed0d52e6ee75ad58712a3"
+      },
+      "provekit": {
+        "stats": {
+          "constraints": 3977858,
+          "witnesses": 3952564,
+          "circuit_bytes": 798195,
+          "prover_key_bytes": 107314278,
+          "verifier_key_bytes": 107314278
+        },
+        "relation_id": "94c4a52623fc3b7229d24daa8fc956898e15b565f4fb5286df93b2b0eca2fdbd",
+        "manifest_sha256": "c76ac37401aa839429a2f27d21fe18bec1b0391b6fd072fd142397709be26b09"
+      }
+    },
+    "age_verify": {
+      "kind": "age",
+      "public_fields": 5,
+      "chonk": [
+        {
+          "name": "age_verify",
+          "kind": "app",
+          "gates": 7019,
+          "opcodes": 1241
+        },
+        {
+          "name": "kernel_init",
+          "kind": "kernel",
+          "gates": 12375,
+          "opcodes": 344
+        },
+        {
+          "name": "kernel_tail",
+          "kind": "kernel",
+          "gates": 15888,
+          "opcodes": 126
+        },
+        {
+          "name": "kernel_hiding",
+          "kind": "hiding",
+          "gates": 37498,
+          "opcodes": 150
+        }
+      ],
+      "algorithms": [
+        "age_verify"
+      ],
+      "groth16": {
+        "stats": {
+          "constraints": 30964,
+          "witnesses": 30591,
+          "public_inputs": 5,
+          "circuit_bytes": 12366,
+          "prover_key_bytes": 5944400,
+          "verifier_key_bytes": 424,
+          "matrix_plan_bytes": 17944069,
+          "domain_size": 32768,
+          "decoded_query_bytes": 11887744,
+          "wasm32_lower_bound_bytes": 14964000
+        },
+        "relation_id": "f64778706dad21f5738571a829d91937038872e4f8795b6ad3c60ebcfb4473b3",
+        "manifest_sha256": "982f177a24a587ea0be12acb3e9b0c8c5ff2ee581f2ea3c69c7704fa373d23b2"
+      },
+      "provekit": {
+        "stats": {
+          "constraints": 30964,
+          "witnesses": 30597,
+          "circuit_bytes": 12366,
+          "prover_key_bytes": 1948918,
+          "verifier_key_bytes": 1948918
+        },
+        "relation_id": "e81f4ed8a31b6b47c36588b6871eac93147a84b9ef79c372cc2ed755e9d6a7ab",
+        "manifest_sha256": "42142317a69d5486757be64340766234a63791be61d3f17319842f9341862749"
+      }
+    }
+  },
+  "runs": [
+    {
+      "initialization_ms": 6626.509999997914,
+      "prove_ms": 4922.42500000447,
+      "verify_ms": 88.76999999582767,
+      "verified": true,
+      "proof_bytes": 40192,
+      "compressed_proof_bytes": 23552,
+      "wasm_capacity_bytes": 280625152,
+      "memory": {
+        "bytes": 280625152,
+        "instances": 2,
+        "method": "retained observed WASM capacity; excludes JS/native overhead and unobserved nested-worker memories"
+      },
+      "actual_threads": 1,
+      "pipeline": "age_verify",
+      "backend": "chonk",
+      "threads": 1,
+      "status": "ok",
+      "sample": 1,
+      "backgrounded": false
+    },
+    {
+      "initialization_ms": 244.67499999701977,
+      "prove_ms": 1395.140000000596,
+      "verify_ms": 34.09499999880791,
+      "verified": true,
+      "proof_bytes": 40192,
+      "compressed_proof_bytes": 23552,
+      "wasm_capacity_bytes": 286130176,
+      "memory": {
+        "bytes": 286130176,
+        "instances": 2,
+        "method": "retained observed WASM capacity; excludes JS/native overhead and unobserved nested-worker memories"
+      },
+      "actual_threads": 6,
+      "pipeline": "age_verify",
+      "backend": "chonk",
+      "threads": 6,
+      "status": "ok",
+      "sample": 1,
+      "backgrounded": false
+    },
+    {
+      "initialization_ms": 6752.435000002384,
+      "prove_ms": 1483.75,
+      "verify_ms": 2.594999998807907,
+      "verified": true,
+      "proof_bytes": 256,
+      "compressed_proof_bytes": 128,
+      "stats": {
+        "constraints": 30964,
+        "witnesses": 30591,
+        "public_inputs": 5,
+        "circuit_bytes": 12366,
+        "prover_key_bytes": 5944400,
+        "verifier_key_bytes": 424,
+        "matrix_plan_bytes": 17944069,
+        "domain_size": 32768,
+        "decoded_query_bytes": 11887744,
+        "wasm32_lower_bound_bytes": 14964000,
+        "threads": 1,
+        "backend": "arkworks-groth16-bn254",
+        "proof_encoding": "arkworks-canonical-point-compressed",
+        "compression": null
+      },
+      "wasm_capacity_bytes": 32178176,
+      "memory": {
+        "bytes": 32178176,
+        "instances": 1,
+        "method": "retained observed WASM capacity; excludes JS/native overhead and unobserved nested-worker memories"
+      },
+      "actual_threads": 1,
+      "pipeline": "age_verify",
+      "backend": "groth16",
+      "threads": 1,
+      "status": "ok",
+      "sample": 1,
+      "backgrounded": false
+    },
+    {
+      "initialization_ms": 3012.60000000149,
+      "prove_ms": 410.54500000178814,
+      "verify_ms": 2.380000002682209,
+      "verified": true,
+      "proof_bytes": 256,
+      "compressed_proof_bytes": 128,
+      "stats": {
+        "constraints": 30964,
+        "witnesses": 30591,
+        "public_inputs": 5,
+        "circuit_bytes": 12366,
+        "prover_key_bytes": 5944400,
+        "verifier_key_bytes": 424,
+        "matrix_plan_bytes": 17944069,
+        "domain_size": 32768,
+        "decoded_query_bytes": 11887744,
+        "wasm32_lower_bound_bytes": 14964000,
+        "threads": 6,
+        "backend": "arkworks-groth16-bn254",
+        "proof_encoding": "arkworks-canonical-point-compressed",
+        "compression": null
+      },
+      "wasm_capacity_bytes": 49152000,
+      "memory": {
+        "bytes": 49152000,
+        "instances": 1,
+        "method": "retained observed WASM capacity; excludes JS/native overhead and unobserved nested-worker memories"
+      },
+      "actual_threads": 6,
+      "pipeline": "age_verify",
+      "backend": "groth16",
+      "threads": 6,
+      "status": "ok",
+      "sample": 1,
+      "backgrounded": false
+    },
+    {
+      "initialization_ms": 67.63499999791384,
+      "prove_ms": 225.20000000298023,
+      "verify_ms": 64.75,
+      "verified": true,
+      "proof_bytes": 327798,
+      "compressed_proof_bytes": null,
+      "stats": {
+        "constraints": 30964,
+        "witnesses": 30597,
+        "circuit_bytes": 12366,
+        "prover_key_bytes": 1948918,
+        "verifier_key_bytes": 1948918
+      },
+      "wasm_capacity_bytes": 32636928,
+      "memory": {
+        "bytes": 32636928,
+        "instances": 1,
+        "method": "retained observed WASM capacity; excludes JS/native overhead and unobserved nested-worker memories"
+      },
+      "actual_threads": 1,
+      "pipeline": "age_verify",
+      "backend": "provekit",
+      "threads": 1,
+      "status": "ok",
+      "sample": 1,
+      "backgrounded": false
+    },
+    {
+      "initialization_ms": 76.42999999970198,
+      "prove_ms": 99.4050000011921,
+      "verify_ms": 31.63000000268221,
+      "verified": true,
+      "proof_bytes": 326646,
+      "compressed_proof_bytes": null,
+      "stats": {
+        "constraints": 30964,
+        "witnesses": 30597,
+        "circuit_bytes": 12366,
+        "prover_key_bytes": 1948918,
+        "verifier_key_bytes": 1948918
+      },
+      "wasm_capacity_bytes": 45744128,
+      "memory": {
+        "bytes": 45744128,
+        "instances": 1,
+        "method": "retained observed WASM capacity; excludes JS/native overhead and unobserved nested-worker memories"
+      },
+      "actual_threads": 6,
+      "pipeline": "age_verify",
+      "backend": "provekit",
+      "threads": 6,
+      "status": "ok",
+      "sample": 1,
+      "backgrounded": false
+    }
+  ],
+  "verifications": [
+    {
+      "pipeline": "age_verify",
+      "backend": "chonk",
+      "wasm": {
+        "verify_samples_ms": [
+          28.575000002980232,
+          27.490000002086163,
+          27.560000002384186,
+          26.16499999910593,
+          28.089999996125698,
+          29.88000000268221,
+          31.390000000596046,
+          27.229999996721745,
+          29.009999997913837,
+          27.355000004172325,
+          28.399999998509884,
+          29.594999998807907,
+          26.91499999910593,
+          27.975000001490116,
+          27.66499999910593,
+          26.78999999910593,
+          28.405000001192093,
+          28.469999998807907,
+          26.575000002980232,
+          28.91499999910593
+        ],
+        "verify_median_ms": 28.032499998807907,
+        "warmups": 1,
+        "threads": 18,
+        "proof_transport_bytes": 40192,
+        "pipeline": "age_verify",
+        "backend": "chonk",
+        "status": "ok"
+      },
+      "native": null
+    },
+    {
+      "pipeline": "age_verify",
+      "backend": "groth16",
+      "wasm": {
+        "verify_samples_ms": [
+          1.9250000044703484,
+          1.844999998807907,
+          1.7950000017881393,
+          1.785000003874302,
+          1.9749999940395355,
+          1.915000006556511,
+          1.8249999955296516,
+          1.7700000032782555,
+          1.739999994635582,
+          1.7300000041723251,
+          1.7100000008940697,
+          1.6899999976158142,
+          1.6899999976158142,
+          1.6750000044703484,
+          1.6850000023841858,
+          1.739999994635582,
+          1.7400000020861626,
+          1.719999998807907,
+          1.7000000029802322,
+          1.6899999976158142
+        ],
+        "verify_median_ms": 1.739999994635582,
+        "warmups": 1,
+        "threads": 18,
+        "proof_transport_bytes": 128,
+        "pipeline": "age_verify",
+        "backend": "groth16",
+        "status": "ok"
+      },
+      "native": null
+    },
+    {
+      "pipeline": "age_verify",
+      "backend": "provekit",
+      "wasm": {
+        "verify_samples_ms": [
+          21.099999994039536,
+          20.890000000596046,
+          21.310000002384186,
+          20.71500000357628,
+          21.445000000298023,
+          20.384999997913837,
+          20.700000002980232,
+          22.089999996125698,
+          21.21000000089407,
+          20.825000002980232,
+          20.62999999523163,
+          20.939999997615814,
+          20.770000003278255,
+          20.850000001490116,
+          20.75,
+          21.140000000596046,
+          20.609999999403954,
+          20.49500000476837,
+          20.75499999523163,
+          20.49500000476837
+        ],
+        "verify_median_ms": 20.797500003129244,
+        "warmups": 1,
+        "threads": 18,
+        "proof_transport_bytes": 328342,
+        "pipeline": "age_verify",
+        "backend": "provekit",
+        "status": "ok"
+      },
+      "native": null
+    }
+  ]
+}

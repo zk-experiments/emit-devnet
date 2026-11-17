@@ -1,0 +1,13 @@
+pipeline,implementation,threads,sample,status,witness_prove_ms,verify_ms,peak_footprint_bytes,peak_rss_bytes,proof_bytes,compressed_proof_bytes,error,runtime,actual_threads
+"identity_register_de_bp384_bp256","chonk","1","1","ok","11815.734958000001","66.96375","1061831976","1327480832","40192","23552","","native","1"
+"identity_register_de_bp384_bp256","chonk","6","1","ok","4131.494250000001","22.297334","1062208832","1306148864","40192","23552","","native","6"
+"identity_register_de_bp384_bp256","groth16","1","1","ok","44750.599458000004","0.8474999999999999","6848058792","5740068864","256","128","","native","1"
+"identity_register_de_bp384_bp256","groth16","6","1","ok","13905.289459","0.85","6997481328","5840650240","256","128","","native","6"
+"identity_register_de_bp384_bp256","provekit","1","1","ok","17446.858542","2491.487125","5529113208","5659688960","525366","","","native","1"
+"identity_register_de_bp384_bp256","provekit","6","1","ok","6296.310125","1040.649","6537500168","6662258688","526678","","","native","6"
+"identity_register_us_rsa4096_rsa2048","chonk","1","1","ok","7544.700125","68.01312499999999","647742424","659423232","40192","23552","","native","1"
+"identity_register_us_rsa4096_rsa2048","chonk","6","1","ok","1905.467542","20.17625","657900504","669564928","40192","23552","","native","6"
+"identity_register_us_rsa4096_rsa2048","groth16","1","1","ok","23790.405541","0.8312919999999999","3385953184","3429810176","256","128","","native","1"
+"identity_register_us_rsa4096_rsa2048","groth16","6","1","ok","6949.249459","0.874791","3505507496","3541286912","256","128","","native","6"
+"identity_register_us_rsa4096_rsa2048","provekit","1","1","ok","8904.758749999999","1365.2495","3217247352","3261743104","517366","","","native","1"
+"identity_register_us_rsa4096_rsa2048","provekit","6","1","ok","2966.061334","526.429209","3371961608","3401826304","518198","","","native","6"

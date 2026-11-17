@@ -1,0 +1,21 @@
+{
+  "name": "emit-wasm-bench",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "bench": "node bench.mjs run",
+    "compare": "node compare.mjs run",
+    "build:web": "node build-web.mjs",
+    "serve": "node serve.mjs"
+  },
+  "dependencies": {
+    "@aztec-foundation/bb.js": "7.0.0-nightly.20261110",
+    "@noir-lang/acvm_js": "1.0.0-rc.5"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "playwright": "1.59.1",
+    "vite": "8.3.8"
+  }
+}
